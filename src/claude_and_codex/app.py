@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
+from dataclasses import dataclass
 
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer
@@ -19,8 +21,75 @@ from .tools.file_read import file_read_tool, configure as configure_file_read
 from .tools.file_write import file_write_tool, configure as configure_file_write
 from .tools.shell_exec import shell_exec_tool, configure as configure_shell
 from .ui.chat_panel import ChatPanel
-from .ui.input_bar import InputBar, UserSubmitted
+from .ui.input_bar import InputBar, UserSubmitted, CommandSubmitted, SlashCommand
 from .ui.status_bar import StatusBar
+
+
+@dataclass
+class PendingConfirmation:
+    tool_name: str
+    future: asyncio.Future[bool]
+
+
+class CommandHandler:
+    """Handles slash commands from the input bar."""
+
+    HELP_TEXT = (
+        "Available commands:\n"
+        "- /model <name>: set Claude and Codex model names\n"
+        "- /clear: clear chat and conversation history\n"
+        "- /cd <path>: set working directory for tools\n"
+        "- /help: show this help"
+    )
+
+    def __init__(self, app: ClaudeAndCodexApp) -> None:
+        self.app = app
+
+    async def handle(self, command: SlashCommand) -> str:
+        name = command.name
+
+        if name == "help" or name == "":
+            return self.HELP_TEXT
+
+        if name == "clear":
+            self.app.conversation = Conversation()
+            self.app.claude.conversation = self.app.conversation
+            self.app.codex.conversation = self.app.conversation
+            self.app.orchestrator.conversation = self.app.conversation
+            self.app.query_one(ChatPanel).clear_messages()
+            return "Cleared chat panel and in-memory conversation."
+
+        if name == "model":
+            model = command.argument.strip()
+            if not model:
+                return "Usage: /model <name>"
+            self.app.config.claude_model = model
+            self.app.config.codex_model = model
+            self.app.claude.model = model
+            self.app.codex.model = model
+            return f"Updated model for both agents to: {model}"
+
+        if name == "cd":
+            raw_path = command.argument.strip()
+            if not raw_path:
+                return "Usage: /cd <path>"
+
+            candidate = Path(raw_path)
+            if not candidate.is_absolute():
+                candidate = (self.app.config.working_directory / candidate).resolve()
+
+            if not candidate.exists():
+                return f"Path does not exist: {candidate}"
+            if not candidate.is_dir():
+                return f"Not a directory: {candidate}"
+
+            self.app.config.working_directory = candidate
+            configure_file_read(candidate)
+            configure_file_write(candidate)
+            configure_shell(candidate, self.app.config.max_tool_output_chars)
+            return f"Working directory changed to: {candidate}"
+
+        return f"Unknown command: /{name}\n\n{self.HELP_TEXT}"
 
 
 class ClaudeAndCodexApp(App):
@@ -35,6 +104,8 @@ class ClaudeAndCodexApp(App):
     def __init__(self) -> None:
         super().__init__()
         self.config = Config.from_env()
+        self.command_handler = CommandHandler(self)
+        self._pending_confirmation: PendingConfirmation | None = None
 
         # Validate configuration
         self._init_errors = self.config.validate()
@@ -78,6 +149,7 @@ class ClaudeAndCodexApp(App):
             on_message_complete=self._on_message_complete,
             on_tool_call=self._on_tool_call,
             on_new_message=self._on_new_message,
+            on_tool_confirmation=self._on_tool_confirmation,
         )
 
     def compose(self) -> ComposeResult:
@@ -114,10 +186,20 @@ class ClaudeAndCodexApp(App):
 
     async def on_user_submitted(self, event: UserSubmitted) -> None:
         """Handle user message submission."""
+        if await self._maybe_resolve_confirmation(event.content):
+            return
+
         chat = self.query_one(ChatPanel)
         msg = Message(role=Role.USER, content=event.content)
         chat.add_message(msg)
         self._handle_message(event.content)
+
+    async def on_command_submitted(self, event: CommandSubmitted) -> None:
+        if await self._maybe_resolve_confirmation(event.command.raw):
+            return
+
+        result = await self.command_handler.handle(event.command)
+        self.query_one(ChatPanel).add_message(Message(role=Role.SYSTEM, content=result))
 
     @work(exclusive=True, thread=False)
     async def _handle_message(self, content: str) -> None:
@@ -142,3 +224,61 @@ class ClaudeAndCodexApp(App):
 
     async def _on_new_message(self, message: Message) -> None:
         self.query_one(ChatPanel).add_message(message)
+
+    async def _on_tool_confirmation(self, role: Role, tool_call: ToolCall) -> bool:
+        caller = "Claude" if role == Role.CLAUDE else "Codex"
+        args_preview = str(tool_call.arguments)
+        prompt = (
+            f"Confirm tool execution from {caller}: `{tool_call.name}`\n"
+            f"Arguments: {args_preview}\n"
+            "Reply `yes` to approve or `no` to deny."
+        )
+        self.query_one(ChatPanel).add_message(
+            Message(role=Role.SYSTEM, content=prompt)
+        )
+
+        future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+        self._pending_confirmation = PendingConfirmation(
+            tool_name=tool_call.name,
+            future=future,
+        )
+        self.query_one(InputBar).placeholder = "Confirm tool call: yes / no"
+        approved = await future
+        self.query_one(InputBar).placeholder = "Type a message... (Ctrl+C to quit)"
+        return approved
+
+    async def _maybe_resolve_confirmation(self, content: str) -> bool:
+        pending = self._pending_confirmation
+        if pending is None:
+            return False
+
+        value = content.strip().lower()
+        if value in {"yes", "y"}:
+            pending.future.set_result(True)
+            self.query_one(ChatPanel).add_message(
+                Message(
+                    role=Role.SYSTEM,
+                    content=f"Approved `{pending.tool_name}`.",
+                )
+            )
+            self._pending_confirmation = None
+            return True
+
+        if value in {"no", "n"}:
+            pending.future.set_result(False)
+            self.query_one(ChatPanel).add_message(
+                Message(
+                    role=Role.SYSTEM,
+                    content=f"Denied `{pending.tool_name}`.",
+                )
+            )
+            self._pending_confirmation = None
+            return True
+
+        self.query_one(ChatPanel).add_message(
+            Message(
+                role=Role.SYSTEM,
+                content="Pending tool confirmation. Reply `yes` or `no`.",
+            )
+        )
+        return True
