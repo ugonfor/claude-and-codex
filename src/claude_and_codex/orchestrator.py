@@ -159,7 +159,7 @@ class Orchestrator:
             await self.on_status_change(agent.role, AgentStatus.TOOL_CALLING)
 
         for tc in tool_calls:
-            if tc.name in {"write_file", "execute_shell"} and self.on_tool_confirmation:
+            if tc.name in {"write_file", "execute_shell"} and self.on_tool_confirmation and not self.config.bypass_tool_confirmation:
                 approved = await self.on_tool_confirmation(agent.role, tc)
                 if not approved:
                     tc.error = f"User denied execution of tool '{tc.name}'"

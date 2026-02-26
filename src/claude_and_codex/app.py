@@ -39,6 +39,7 @@ class CommandHandler:
         "- /model <name>: set Claude and Codex model names\n"
         "- /clear: clear chat and conversation history\n"
         "- /cd <path>: set working directory for tools\n"
+        "- /bypass: toggle bypass tool confirmations (on/off)\n"
         "- /help: show this help"
     )
 
@@ -68,6 +69,13 @@ class CommandHandler:
             self.app.claude.model = model
             self.app.codex.model = model
             return f"Updated model for both agents to: {model}"
+
+        if name == "bypass":
+            self.app.config.bypass_tool_confirmation = (
+                not self.app.config.bypass_tool_confirmation
+            )
+            state = "ON" if self.app.config.bypass_tool_confirmation else "OFF"
+            return f"Bypass tool confirmations: {state}"
 
         if name == "cd":
             raw_path = command.argument.strip()

@@ -21,6 +21,7 @@ class Config:
     max_consecutive_agent_turns: int = 3
     agent_cooldown_seconds: float = 1.0
     max_tool_output_chars: int = 10000
+    bypass_tool_confirmation: bool = False
 
     @classmethod
     def from_env(cls) -> Config:
