@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "claude-and-codex"
+version = "0.1.0"
+description = "A TUI coding agent where Claude and Codex collaborate freely"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "textual>=0.47",
+    "anthropic>=0.40",
+    "openai>=1.50",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[project.scripts]
+claude-and-codex = "claude_and_codex.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/claude_and_codex"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

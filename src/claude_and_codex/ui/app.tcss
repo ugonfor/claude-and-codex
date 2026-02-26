@@ -1,0 +1,30 @@
+Screen {
+    layout: vertical;
+}
+
+ChatPanel {
+    height: 1fr;
+    border: solid $primary;
+    overflow-y: auto;
+}
+
+InputBar {
+    height: 3;
+    dock: bottom;
+    margin: 0 1;
+}
+
+StatusBar {
+    height: 1;
+    dock: bottom;
+}
+
+MessageWidget {
+    height: auto;
+    margin-bottom: 1;
+}
+
+ToolCallWidget {
+    height: auto;
+    margin: 0 2 1 2;
+}
