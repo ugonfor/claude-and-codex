@@ -14,14 +14,19 @@ class Config:
     anthropic_api_key: str = ""
     anthropic_auth_source: str = "none"
     openai_api_key: str = ""
+    openai_account_id: str = ""
     openai_auth_source: str = "none"
     claude_model: str = "claude-sonnet-4-20250514"
-    codex_model: str = "gpt-4o"
+    codex_model: str = "gpt-5.3-codex"
     working_directory: Path = field(default_factory=Path.cwd)
     max_consecutive_agent_turns: int = 3
     agent_cooldown_seconds: float = 1.0
     max_tool_output_chars: int = 10000
     bypass_tool_confirmation: bool = False
+
+    @property
+    def is_chatgpt_oauth(self) -> bool:
+        return self.openai_auth_source == "chatgpt_oauth"
 
     @classmethod
     def from_env(cls) -> Config:
@@ -33,13 +38,19 @@ class Config:
             env_key=os.environ.get("OPENAI_API_KEY"),
         )
 
+        # Default model depends on auth mode
+        default_codex_model = (
+            "gpt-5.3-codex" if openai_auth.is_chatgpt_oauth else "gpt-4o"
+        )
+
         return cls(
             anthropic_api_key=anthropic_auth.token,
             anthropic_auth_source=anthropic_auth.source,
-            openai_api_key=openai_auth.token,
+            openai_api_key=openai_auth.access_token,
+            openai_account_id=openai_auth.account_id,
             openai_auth_source=openai_auth.source,
             claude_model=os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-20250514"),
-            codex_model=os.environ.get("CODEX_MODEL", "gpt-4o"),
+            codex_model=os.environ.get("CODEX_MODEL", default_codex_model),
             working_directory=Path(os.environ.get("WORKING_DIR", str(Path.cwd()))),
             max_consecutive_agent_turns=int(os.environ.get("MAX_AGENT_TURNS", "3")),
         )

@@ -145,6 +145,8 @@ class ClaudeAndCodexApp(App):
             tool_registry=self.tool_registry,
             api_key=self.config.openai_api_key,
             model=self.config.codex_model,
+            account_id=self.config.openai_account_id,
+            use_chatgpt_oauth=self.config.is_chatgpt_oauth,
         )
 
         self.orchestrator = Orchestrator(

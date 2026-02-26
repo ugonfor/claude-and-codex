@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import platform
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,48 +14,47 @@ from pathlib import Path
 class AuthResult:
     """Result of an authentication attempt."""
     token: str
-    source: str  # "oauth", "env", or "none"
+    source: str  # "keychain", "oauth", "env", or "none"
 
 
-def discover_claude_oauth() -> str | None:
-    """Try to read Claude CLI OAuth token from ~/.claude/ config."""
-    claude_dir = Path.home() / ".claude"
-    if not claude_dir.exists():
+@dataclass
+class CodexAuthResult:
+    """Codex uses ChatGPT OAuth which requires special handling."""
+    access_token: str
+    account_id: str
+    source: str  # "chatgpt_oauth", "env", or "none"
+
+    @property
+    def is_chatgpt_oauth(self) -> bool:
+        return self.source == "chatgpt_oauth"
+
+
+def discover_claude_keychain() -> str | None:
+    """Read Claude Code API key from macOS Keychain."""
+    if platform.system() != "Darwin":
         return None
-
-    # Claude CLI stores credentials in various locations
-    for config_name in ["credentials.json", "config.json", ".credentials"]:
-        config_path = claude_dir / config_name
-        if config_path.exists():
-            try:
-                data = json.loads(config_path.read_text(encoding="utf-8"))
-                for key in ["apiKey", "api_key", "token", "oauth_token", "sessionKey"]:
-                    if key in data and data[key]:
-                        return data[key]
-            except (json.JSONDecodeError, KeyError):
-                continue
-
+    try:
+        result = subprocess.run(
+            ["security", "find-generic-password", "-s", "Claude Code", "-w"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except (subprocess.SubprocessError, FileNotFoundError):
+        pass
     return None
 
 
-def discover_codex_oauth() -> str | None:
-    """Read Codex CLI auth from ~/.codex/auth.json.
+def discover_codex_chatgpt_oauth() -> tuple[str, str] | None:
+    """Read Codex CLI ChatGPT OAuth tokens from ~/.codex/auth.json.
 
-    Verified schema (from Codex's own review):
-    {
-        "auth_mode": "chatgpt",
-        "OPENAI_API_KEY": <string|null>,
-        "tokens": {
-            "id_token": "<string>",
-            "access_token": "<string>",
-            "refresh_token": "<string>",
-            "account_id": "<string>"
-        },
-        "last_refresh": "<string>"
-    }
+    Returns (access_token, account_id) or None.
 
-    NOTE: tokens.access_token is a ChatGPT OAuth token, NOT a standard
-    OpenAI API key. For direct OpenAI API calls, only OPENAI_API_KEY works.
+    The Codex CLI with chatgpt auth uses:
+    - Base URL: https://chatgpt.com/backend-api/codex
+    - Bearer token: tokens.access_token
+    - Header: ChatGPT-Account-ID: tokens.account_id
+    - API: OpenAI Responses API (streaming only)
     """
     codex_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
     auth_path = codex_home / "auth.json"
@@ -66,21 +67,43 @@ def discover_codex_oauth() -> str | None:
     except (json.JSONDecodeError, OSError):
         return None
 
-    # Prefer explicit OPENAI_API_KEY if set and non-null
+    if data.get("auth_mode") != "chatgpt":
+        # If using API key mode, the OPENAI_API_KEY field might be set
+        return None
+
+    tokens = data.get("tokens", {})
+    access_token = tokens.get("access_token")
+    account_id = tokens.get("account_id")
+
+    if access_token and account_id:
+        return (access_token, account_id)
+    return None
+
+
+def discover_codex_api_key() -> str | None:
+    """Read explicit OPENAI_API_KEY from Codex config (non-ChatGPT mode)."""
+    codex_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
+    auth_path = codex_home / "auth.json"
+
+    if not auth_path.exists():
+        return None
+
+    try:
+        data = json.loads(auth_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
     api_key = data.get("OPENAI_API_KEY")
     if api_key:
         return api_key
-
-    # tokens.access_token is a ChatGPT session token — not usable for
-    # direct OpenAI API calls. Return None so we fall back to env var.
     return None
 
 
 def resolve_anthropic_auth(env_key: str | None = None) -> AuthResult:
-    """Resolve Anthropic API auth: OAuth first, then env var."""
-    oauth_token = discover_claude_oauth()
-    if oauth_token:
-        return AuthResult(token=oauth_token, source="oauth")
+    """Resolve Anthropic API auth: Keychain first, then env var."""
+    keychain_key = discover_claude_keychain()
+    if keychain_key:
+        return AuthResult(token=keychain_key, source="keychain")
 
     if env_key:
         return AuthResult(token=env_key, source="env")
@@ -88,13 +111,35 @@ def resolve_anthropic_auth(env_key: str | None = None) -> AuthResult:
     return AuthResult(token="", source="none")
 
 
-def resolve_openai_auth(env_key: str | None = None) -> AuthResult:
-    """Resolve OpenAI API auth: Codex config first, then env var."""
-    codex_key = discover_codex_oauth()
+def resolve_openai_auth(env_key: str | None = None) -> CodexAuthResult:
+    """Resolve OpenAI/Codex auth.
+
+    Priority:
+    1. ChatGPT OAuth (from Codex CLI login) — uses Responses API
+    2. API key from Codex config
+    3. OPENAI_API_KEY env var
+    """
+    # Try ChatGPT OAuth
+    chatgpt = discover_codex_chatgpt_oauth()
+    if chatgpt:
+        access_token, account_id = chatgpt
+        return CodexAuthResult(
+            access_token=access_token,
+            account_id=account_id,
+            source="chatgpt_oauth",
+        )
+
+    # Try API key from Codex config
+    codex_key = discover_codex_api_key()
     if codex_key:
-        return AuthResult(token=codex_key, source="oauth")
+        return CodexAuthResult(
+            access_token=codex_key, account_id="", source="env",
+        )
 
+    # Fall back to env var
     if env_key:
-        return AuthResult(token=env_key, source="env")
+        return CodexAuthResult(
+            access_token=env_key, account_id="", source="env",
+        )
 
-    return AuthResult(token="", source="none")
+    return CodexAuthResult(access_token="", account_id="", source="none")

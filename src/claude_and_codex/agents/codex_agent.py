@@ -1,10 +1,18 @@
-"""Codex agent implementation using OpenAI API."""
+"""Codex agent implementation.
+
+Supports two backends:
+1. ChatGPT OAuth → Responses API at chatgpt.com/backend-api/codex (streaming)
+2. Standard API key → OpenAI Chat Completions API (streaming)
+"""
 
 from __future__ import annotations
 
 import json
-from openai import AsyncOpenAI
+import urllib.request
+import urllib.error
 from typing import AsyncIterator
+
+from openai import AsyncOpenAI
 
 from ..models import Message, Role, ToolCall, AgentStatus
 from ..conversation import Conversation
@@ -18,12 +26,19 @@ class CodexAgent(BaseAgent):
         conversation: Conversation,
         tool_registry: ToolRegistry,
         api_key: str,
-        model: str = "gpt-4o",
+        model: str = "gpt-5.3-codex",
+        account_id: str = "",
+        use_chatgpt_oauth: bool = False,
     ) -> None:
         super().__init__(Role.CODEX, conversation, tool_registry)
-        self.client = AsyncOpenAI(api_key=api_key)
+        self.api_key = api_key
         self.model = model
+        self.account_id = account_id
+        self.use_chatgpt_oauth = use_chatgpt_oauth
         self._pending_tool_calls: list[ToolCall] = []
+
+        if not use_chatgpt_oauth:
+            self.client = AsyncOpenAI(api_key=api_key)
 
     def build_system_prompt(self) -> str:
         return (
@@ -41,6 +56,100 @@ class CodexAgent(BaseAgent):
         )
 
     async def generate_response(self) -> AsyncIterator[str]:
+        if self.use_chatgpt_oauth:
+            async for chunk in self._generate_chatgpt_oauth():
+                yield chunk
+        else:
+            async for chunk in self._generate_openai_standard():
+                yield chunk
+
+    async def _generate_chatgpt_oauth(self) -> AsyncIterator[str]:
+        """Use ChatGPT backend Responses API (streaming SSE)."""
+        self.status = AgentStatus.STREAMING
+        self._pending_tool_calls = []
+
+        # Build input in Responses API format
+        messages = self.conversation.to_openai_messages()
+        input_items = []
+        for msg in messages:
+            if msg.get("role") == "system":
+                continue
+            role = msg["role"] if msg["role"] in ("user", "assistant") else "user"
+            input_items.append({
+                "type": "message",
+                "role": role,
+                "content": msg.get("content", ""),
+            })
+
+        tools = self.tool_registry.all_openai()
+        body: dict = {
+            "model": self.model,
+            "instructions": self.build_system_prompt(),
+            "input": input_items,
+            "store": False,
+            "stream": True,
+        }
+        if tools:
+            body["tools"] = tools
+
+        try:
+            req = urllib.request.Request(
+                "https://chatgpt.com/backend-api/codex/responses",
+                data=json.dumps(body).encode(),
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                    "ChatGPT-Account-ID": self.account_id,
+                },
+            )
+            resp = urllib.request.urlopen(req, timeout=120)
+
+            for raw_line in resp:
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line.startswith("data: "):
+                    continue
+                payload = line[6:]
+                if payload == "[DONE]":
+                    break
+                try:
+                    event = json.loads(payload)
+                except json.JSONDecodeError:
+                    continue
+
+                etype = event.get("type", "")
+                if etype == "response.output_text.delta":
+                    delta = event.get("delta", "")
+                    if delta:
+                        yield delta
+                elif etype == "response.completed":
+                    response = event.get("response", {})
+                    for item in response.get("output", []):
+                        if item.get("type") == "function_call":
+                            try:
+                                args = json.loads(item.get("arguments", "{}"))
+                            except json.JSONDecodeError:
+                                args = {}
+                            self._pending_tool_calls.append(
+                                ToolCall(
+                                    id=item.get("call_id", item.get("id", "")),
+                                    name=item.get("name", ""),
+                                    arguments=args,
+                                )
+                            )
+
+        except (urllib.error.HTTPError, urllib.error.URLError, OSError) as e:
+            self.status = AgentStatus.ERROR
+            if isinstance(e, urllib.error.HTTPError):
+                body_text = e.read().decode("utf-8", errors="replace")[:300]
+                yield f"\n[Error {e.code}: {body_text}]"
+            else:
+                yield f"\n[Error: {e}]"
+            return
+
+        self.status = AgentStatus.IDLE
+
+    async def _generate_openai_standard(self) -> AsyncIterator[str]:
+        """Use standard OpenAI Chat Completions API (streaming)."""
         self.status = AgentStatus.STREAMING
         self._pending_tool_calls = []
 
@@ -56,27 +165,20 @@ class CodexAgent(BaseAgent):
                 stream=True,
             )
 
-            # Accumulate tool call data from streamed chunks
             tool_call_accumulators: dict[int, dict] = {}
 
             async for chunk in stream:
                 delta = chunk.choices[0].delta if chunk.choices else None
                 if delta is None:
                     continue
-
-                # Stream text content
                 if delta.content:
                     yield delta.content
-
-                # Accumulate tool calls from deltas
                 if delta.tool_calls:
                     for tc_delta in delta.tool_calls:
                         idx = tc_delta.index
                         if idx not in tool_call_accumulators:
                             tool_call_accumulators[idx] = {
-                                "id": "",
-                                "name": "",
-                                "arguments": "",
+                                "id": "", "name": "", "arguments": "",
                             }
                         acc = tool_call_accumulators[idx]
                         if tc_delta.id:
@@ -87,7 +189,6 @@ class CodexAgent(BaseAgent):
                             if tc_delta.function.arguments:
                                 acc["arguments"] += tc_delta.function.arguments
 
-            # Build final tool calls from accumulators
             for _idx, acc in sorted(tool_call_accumulators.items()):
                 try:
                     args = json.loads(acc["arguments"]) if acc["arguments"] else {}
