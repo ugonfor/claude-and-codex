@@ -34,6 +34,7 @@ class Orchestrator:
         on_message_complete: Callable[[Message], Awaitable[None]] | None = None,
         on_tool_call: Callable[[Role, ToolCall], Awaitable[None]] | None = None,
         on_new_message: Callable[[Message], Awaitable[None]] | None = None,
+        on_tool_confirmation: Callable[[Role, ToolCall], Awaitable[bool]] | None = None,
     ) -> None:
         self.conversation = conversation
         self.claude = claude
@@ -48,6 +49,7 @@ class Orchestrator:
         self.on_message_complete = on_message_complete
         self.on_tool_call = on_tool_call
         self.on_new_message = on_new_message
+        self.on_tool_confirmation = on_tool_confirmation
 
     async def handle_user_message(self, content: str) -> None:
         """Called when the user sends a message."""
@@ -157,6 +159,22 @@ class Orchestrator:
             await self.on_status_change(agent.role, AgentStatus.TOOL_CALLING)
 
         for tc in tool_calls:
+            if tc.name in {"write_file", "execute_shell"} and self.on_tool_confirmation:
+                approved = await self.on_tool_confirmation(agent.role, tc)
+                if not approved:
+                    tc.error = f"User denied execution of tool '{tc.name}'"
+                    tc.result = tc.error
+                    if self.on_tool_call:
+                        await self.on_tool_call(agent.role, tc)
+                    tool_msg = Message(
+                        role=Role.TOOL,
+                        content=f"Tool {tc.name}: {tc.error}",
+                        tool_calls=[tc],
+                        tool_owner=agent.role,
+                    )
+                    await self.conversation.add_message(tool_msg)
+                    continue
+
             result = await agent.tool_registry.execute(tc.name, tc.arguments)
             tc.result = result
 

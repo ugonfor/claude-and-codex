@@ -40,3 +40,7 @@ class ChatPanel(VerticalScroll):
         widget = ToolCallWidget(role, tool_call)
         self.mount(widget)
         self.scroll_end(animate=False)
+
+    def clear_messages(self) -> None:
+        self.remove_children()
+        self._message_widgets.clear()
