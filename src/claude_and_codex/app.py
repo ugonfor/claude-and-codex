@@ -15,8 +15,8 @@ from .orchestrator import Orchestrator
 from .agents.claude_agent import ClaudeAgent
 from .agents.codex_agent import CodexAgent
 from .tools.registry import ToolRegistry
-from .tools.file_read import file_read_tool
-from .tools.file_write import file_write_tool
+from .tools.file_read import file_read_tool, configure as configure_file_read
+from .tools.file_write import file_write_tool, configure as configure_file_write
 from .tools.shell_exec import shell_exec_tool, configure as configure_shell
 from .ui.chat_panel import ChatPanel
 from .ui.input_bar import InputBar, UserSubmitted
@@ -46,7 +46,9 @@ class ClaudeAndCodexApp(App):
         self.tool_registry.register(file_write_tool)
         self.tool_registry.register(shell_exec_tool)
 
-        # Configure shell tool with working directory
+        # Configure all tools with working directory (P2 fix)
+        configure_file_read(self.config.working_directory)
+        configure_file_write(self.config.working_directory)
         configure_shell(
             self.config.working_directory,
             self.config.max_tool_output_chars,

@@ -129,11 +129,12 @@ class Orchestrator:
             await self.on_status_change(agent.role, AgentStatus.TOOL_CALLING)
 
         for tc in tool_calls:
-            if self.on_tool_call:
-                await self.on_tool_call(agent.role, tc)
-
             result = await agent.tool_registry.execute(tc.name, tc.arguments)
             tc.result = result
+
+            # Fire UI callback AFTER execution so result is available (P3 fix)
+            if self.on_tool_call:
+                await self.on_tool_call(agent.role, tc)
 
             # Add tool result to conversation
             tool_msg = Message(
@@ -143,11 +144,10 @@ class Orchestrator:
             )
             await self.conversation.add_message(tool_msg)
 
-        # After tool execution, let the same agent continue
-        # (bounded by max_consecutive_agent_turns)
-        if self._consecutive_agent_turns < self.config.max_consecutive_agent_turns:
-            self._consecutive_agent_turns += 1
-            await self._run_agent(agent)
+        # After tool execution, let the same agent continue.
+        # Do NOT increment _consecutive_agent_turns here — _run_agent
+        # already increments when it produces output (P1 fix).
+        await self._run_agent(agent)
 
     async def _follow_up_loop(self) -> None:
         """Check if either agent wants to continue the conversation."""
