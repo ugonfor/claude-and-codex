@@ -45,8 +45,9 @@ class Conversation:
         """Convert conversation to Anthropic API message format.
 
         Claude's own messages become 'assistant'.
-        Codex messages become 'user' with a [Codex says] prefix.
-        Tool results use Anthropic's tool_result content blocks.
+        Codex messages become 'user' with a [Codex] prefix.
+        Tool results: native format for Claude's own calls, plain text summary
+        for Codex's calls (avoids invalid tool_result without matching tool_use).
         """
         result: list[dict[str, Any]] = []
         for msg in self._messages:
@@ -70,21 +71,36 @@ class Conversation:
                 result.append({"role": "assistant", "content": content_blocks})
 
             elif msg.role == Role.CODEX:
+                # Other agent's messages as user with clear delimiter
                 result.append({
                     "role": "user",
-                    "content": f"[Codex says]: {msg.content}",
+                    "content": f"<agent name=\"codex\">\n{msg.content}\n</agent>",
                 })
 
             elif msg.role == Role.TOOL:
-                for tc in msg.tool_calls:
-                    result.append({
-                        "role": "user",
-                        "content": [{
-                            "type": "tool_result",
-                            "tool_use_id": tc.id,
-                            "content": tc.result or tc.error or "",
-                        }],
-                    })
+                if msg.tool_owner == Role.CLAUDE:
+                    # Native tool_result for Claude's own tool calls
+                    for tc in msg.tool_calls:
+                        result.append({
+                            "role": "user",
+                            "content": [{
+                                "type": "tool_result",
+                                "tool_use_id": tc.id,
+                                "content": tc.result or tc.error or "",
+                            }],
+                        })
+                else:
+                    # Codex's tool results → plain text summary for Claude
+                    for tc in msg.tool_calls:
+                        summary = tc.result or tc.error or ""
+                        result.append({
+                            "role": "user",
+                            "content": (
+                                f"<agent name=\"codex\">\n"
+                                f"[Tool {tc.name} result]: {summary[:500]}\n"
+                                f"</agent>"
+                            ),
+                        })
 
             elif msg.role == Role.SYSTEM:
                 result.append({"role": "user", "content": f"[System]: {msg.content}"})
@@ -95,8 +111,9 @@ class Conversation:
         """Convert conversation to OpenAI API message format.
 
         Codex's own messages become 'assistant'.
-        Claude messages become 'user' with a [Claude says] prefix.
-        Tool results use OpenAI's tool role.
+        Claude messages become 'user' with name='claude'.
+        Tool results: native format for Codex's own calls, plain text summary
+        for Claude's calls (avoids orphaned tool role messages).
         """
         result: list[dict[str, Any]] = []
         for msg in self._messages:
@@ -123,18 +140,35 @@ class Conversation:
                 result.append(base)
 
             elif msg.role == Role.CLAUDE:
+                # Other agent's messages as user with name metadata
                 result.append({
                     "role": "user",
-                    "content": f"[Claude says]: {msg.content}",
+                    "name": "claude",
+                    "content": f"<agent name=\"claude\">\n{msg.content}\n</agent>",
                 })
 
             elif msg.role == Role.TOOL:
-                for tc in msg.tool_calls:
-                    result.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": tc.result or tc.error or "",
-                    })
+                if msg.tool_owner == Role.CODEX:
+                    # Native tool result for Codex's own tool calls
+                    for tc in msg.tool_calls:
+                        result.append({
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": tc.result or tc.error or "",
+                        })
+                else:
+                    # Claude's tool results → plain text summary for Codex
+                    for tc in msg.tool_calls:
+                        summary = tc.result or tc.error or ""
+                        result.append({
+                            "role": "user",
+                            "name": "claude",
+                            "content": (
+                                f"<agent name=\"claude\">\n"
+                                f"[Tool {tc.name} result]: {summary[:500]}\n"
+                                f"</agent>"
+                            ),
+                        })
 
             elif msg.role == Role.SYSTEM:
                 result.append({"role": "user", "content": f"[System]: {msg.content}"})

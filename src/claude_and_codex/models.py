@@ -42,3 +42,5 @@ class Message:
     tool_calls: list[ToolCall] = field(default_factory=list)
     is_complete: bool = True
     message_id: str = field(default_factory=lambda: str(uuid4()))
+    # Which agent owns this tool message (for scoping tool results per provider)
+    tool_owner: Role | None = None

@@ -15,11 +15,12 @@ class Orchestrator:
     """Manages agent turn-taking with anti-ping-pong mechanisms.
 
     Strategy:
-    1. On user message: both agents respond (Claude first, then Codex).
+    1. On user message: both agents respond (starter alternates per turn).
     2. After an agent responds: check if the other wants to respond.
     3. Track consecutive non-user turns. Stop at max.
     4. If an agent responds with "PASS", skip it.
-    5. Cooldown between agent turns for UI readability.
+    5. Hard cap: an agent cannot respond if it was the last speaker.
+    6. Cooldown between agent turns for UI readability.
     """
 
     def __init__(
@@ -39,6 +40,7 @@ class Orchestrator:
         self.codex = codex
         self.config = config
         self._consecutive_agent_turns = 0
+        self._user_turn_count = 0  # For deterministic alternation
 
         # UI callbacks
         self.on_status_change = on_status_change
@@ -53,10 +55,17 @@ class Orchestrator:
         await self.conversation.add_message(msg)
         self._consecutive_agent_turns = 0
 
+        # Alternate which agent goes first (Codex's suggestion: fairness)
+        if self._user_turn_count % 2 == 0:
+            first, second = self.claude, self.codex
+        else:
+            first, second = self.codex, self.claude
+        self._user_turn_count += 1
+
         # Both agents respond to user messages
-        await self._run_agent(self.claude)
+        await self._run_agent(first)
         await asyncio.sleep(self.config.agent_cooldown_seconds)
-        await self._run_agent(self.codex)
+        await self._run_agent(second)
 
         # Follow-up loop for free-form collaboration
         await self._follow_up_loop()
@@ -64,6 +73,11 @@ class Orchestrator:
     async def _run_agent(self, agent: BaseAgent) -> bool:
         """Run a single agent turn. Returns True if agent produced output."""
         if self._consecutive_agent_turns >= self.config.max_consecutive_agent_turns:
+            return False
+
+        # Hard cap: don't respond if this agent was the last non-tool speaker
+        last_speaker = self._last_agent_speaker()
+        if last_speaker == agent.role:
             return False
 
         recent = self.conversation.messages[-5:]
@@ -118,6 +132,15 @@ class Orchestrator:
         self._consecutive_agent_turns += 1
         return True
 
+    def _last_agent_speaker(self) -> Role | None:
+        """Return the role of the last agent (non-tool, non-user) message."""
+        for msg in reversed(self.conversation.messages):
+            if msg.role in (Role.CLAUDE, Role.CODEX) and msg.is_complete:
+                return msg.role
+            if msg.role == Role.USER:
+                return None  # User spoke most recently
+        return None
+
     async def _handle_tool_calls(
         self,
         agent: BaseAgent,
@@ -132,21 +155,21 @@ class Orchestrator:
             result = await agent.tool_registry.execute(tc.name, tc.arguments)
             tc.result = result
 
-            # Fire UI callback AFTER execution so result is available (P3 fix)
+            # Fire UI callback AFTER execution so result is available
             if self.on_tool_call:
                 await self.on_tool_call(agent.role, tc)
 
-            # Add tool result to conversation
+            # Add tool result to conversation (scoped to calling agent)
             tool_msg = Message(
                 role=Role.TOOL,
                 content=f"Tool {tc.name}: {result[:500]}",
                 tool_calls=[tc],
+                tool_owner=agent.role,
             )
             await self.conversation.add_message(tool_msg)
 
-        # After tool execution, let the same agent continue.
-        # Do NOT increment _consecutive_agent_turns here — _run_agent
-        # already increments when it produces output (P1 fix).
+        # After tool execution, let the same agent continue
+        # (tool results don't count as "same agent spoke last")
         await self._run_agent(agent)
 
     async def _follow_up_loop(self) -> None:
