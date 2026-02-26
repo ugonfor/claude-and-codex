@@ -70,15 +70,20 @@ class Orchestrator:
         # Follow-up loop for free-form collaboration
         await self._follow_up_loop()
 
-    async def _run_agent(self, agent: BaseAgent) -> bool:
+    async def _run_agent(
+        self, agent: BaseAgent, *, after_tool_call: bool = False
+    ) -> bool:
         """Run a single agent turn. Returns True if agent produced output."""
         if self._consecutive_agent_turns >= self.config.max_consecutive_agent_turns:
             return False
 
-        # Hard cap: don't respond if this agent was the last non-tool speaker
-        last_speaker = self._last_agent_speaker()
-        if last_speaker == agent.role:
-            return False
+        # Hard cap: don't respond if this agent was the last non-tool speaker.
+        # Exception: after a tool call the same agent MUST continue to process
+        # the tool results (standard function-calling flow).
+        if not after_tool_call:
+            last_speaker = self._last_agent_speaker()
+            if last_speaker == agent.role:
+                return False
 
         recent = self.conversation.messages[-5:]
         if not agent.should_respond(recent):
@@ -168,9 +173,9 @@ class Orchestrator:
             )
             await self.conversation.add_message(tool_msg)
 
-        # After tool execution, let the same agent continue
-        # (tool results don't count as "same agent spoke last")
-        await self._run_agent(agent)
+        # After tool execution, let the same agent continue to process results.
+        # Pass after_tool_call=True to bypass the "same speaker" guard.
+        await self._run_agent(agent, after_tool_call=True)
 
     async def _follow_up_loop(self) -> None:
         """Check if either agent wants to continue the conversation."""
