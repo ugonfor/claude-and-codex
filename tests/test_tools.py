@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 from pathlib import Path
 
@@ -162,5 +164,7 @@ class TestShellExec:
     @pytest.mark.asyncio
     async def test_timeout(self, tmp_path: Path) -> None:
         configure_shell(tmp_path)
-        result = await execute_shell("sleep 10", timeout=1)
+        # Use a cross-platform long-running command
+        cmd = "ping -n 20 127.0.0.1" if sys.platform == "win32" else "sleep 10"
+        result = await execute_shell(cmd, timeout=1)
         assert "timed out" in result
