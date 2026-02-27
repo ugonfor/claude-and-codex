@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "claude-and-codex"
-version = "0.1.0"
-description = "A TUI coding agent where Claude and Codex collaborate freely"
+version = "0.4.0"
+description = "Claude Code + Codex CLI orchestrator for autonomous collaboration"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"

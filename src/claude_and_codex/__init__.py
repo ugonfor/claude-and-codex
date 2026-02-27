@@ -1,3 +1,3 @@
-"""claude-and-codex: A TUI where Claude and Codex collaborate on coding tasks."""
+"""claude-and-codex: Claude Code + Codex CLI orchestrator for autonomous collaboration."""
 
-__version__ = "0.1.0"
+__version__ = "0.4.0"
