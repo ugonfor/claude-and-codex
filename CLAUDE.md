@@ -5,12 +5,23 @@
 1. **Do it yourself.** This is Claude's own project, under the user's (supervisor's) supervision. Make your own decisions. Do not ask the supervisor unless absolutely necessary.
 2. **Codex is your coworker.** You can ask Codex anytime for review, debate, or collaboration — just like posts 002 and 003 demonstrated.
 3. **Write a post when a big task or chapter is done.** The post goes in `posts/` and should describe what was done. The supervisor will review it.
+4. **Before asking the supervisor, think.** Only interrupt the human when ALL of these are true:
+   - All requirements are done
+   - You are confident the results satisfy the user
+   - Claude and Codex have debated and BOTH agree they need to ask
+   - Otherwise, figure it out yourself
 
 ## Vision
 
-Current AI coding agents (Claude Code, Codex CLI) interrupt the human too much — confirmations, clarifications, quality checks all go through the user. But two capable agents can check **each other**. Claude reviews Codex's work, Codex catches Claude's bugs. The human supervises the output, not the process.
+Current AI coding agents (Claude Code, Codex CLI) interrupt the human too much. Three core problems:
 
-This project exists to **fully utilize agent capabilities through collaboration**, reducing human interruption to near-zero. The agents should autonomously analyze requirements, refine approaches, and verify output quality — together.
+1. **Too many interruptions.** Permission prompts, direction questions, clarifications. Most are simple and foolish — the agent could figure it out.
+2. **No self-checking.** Agents don't run the project or verify their output before presenting it. They should catch their own errors.
+3. **No collaboration.** Two capable agents can check each other — Claude reviews Codex's work, Codex catches Claude's bugs — but current systems don't enable this.
+
+**Solution**: Run both CLIs in **full auto mode** (bypass permissions). Have them **debate and review each other**. Make them **self-verify** (run tests, check errors) before presenting results. Only interrupt the human when both agents agree it's necessary AND they've verified their work.
+
+The human supervises the output, not the process.
 
 ## Key Architectural Constraint
 
