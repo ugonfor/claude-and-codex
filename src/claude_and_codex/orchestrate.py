@@ -19,19 +19,13 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-# ── ANSI colors (disabled for non-TTY) ──────────────────────────────────────
+from rich.console import Console
+from rich.markdown import Markdown
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
 
-_IS_TTY = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
-
-MAGENTA = "\033[35m" if _IS_TTY else ""
-GREEN = "\033[32m" if _IS_TTY else ""
-YELLOW = "\033[33m" if _IS_TTY else ""
-WHITE = "\033[37m" if _IS_TTY else ""
-CYAN = "\033[36m" if _IS_TTY else ""
-RED = "\033[31m" if _IS_TTY else ""
-BOLD = "\033[1m" if _IS_TTY else ""
-DIM = "\033[2m" if _IS_TTY else ""
-RESET = "\033[0m" if _IS_TTY else ""
+console = Console()
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -233,53 +227,67 @@ def run_verify(cwd: str, verify_cmd: str | None = None) -> tuple[bool, str]:
 
 # ── Display ──────────────────────────────────────────────────────────────────
 
+AGENT_STYLES = {
+    "Claude": "magenta",
+    "Codex": "green",
+}
+
 
 def print_agent(name: str, color: str, text: str, duration: str = "") -> None:
-    suffix = f"  {DIM}({duration}){RESET}" if duration else ""
-    print(f"\n{BOLD}{color}=== {name} ==={suffix}{RESET}")
-    for line in text.split("\n"):
-        print(f"{color}  {line}{RESET}")
-    print(f"{BOLD}{color}{'=' * (len(name) + 6)}{RESET}")
+    """Display agent output in a Rich panel."""
+    style = AGENT_STYLES.get(name, color)
+    subtitle = f"{duration}" if duration else None
+    content = Markdown(text) if any(c in text for c in ["```", "**", "- ", "# "]) else Text(text)
+    console.print(Panel(
+        content,
+        title=f"[bold]{name}[/bold]",
+        subtitle=subtitle,
+        border_style=style,
+        padding=(0, 1),
+    ))
 
 
 def print_banner() -> None:
-    print(f"""
-{BOLD}+==========================================+
-|         claude-and-codex  v0.5           |
-|    Free-form AI collaboration engine     |
-+=========================================={RESET}
+    console.print()
+    console.print(Panel(
+        "[dim]Both agents collaborate freely on your task.\n"
+        "No fixed workflow -- they decide what to do.\n"
+        "Type /help for commands.[/dim]",
+        title="[bold]claude-and-codex v0.5[/bold]",
+        subtitle="Free-form AI collaboration",
+        border_style="cyan",
+        padding=(1, 2),
+    ))
 
-{DIM}Both agents collaborate freely on your task.
-No fixed workflow -- they decide what to do.
-Type /help for commands.{RESET}
-""")
 
-
-HELP_TEXT = f"""\
-{BOLD}Commands:{RESET}
-  /help              Show this help
-  /quit              Exit
-  /status            Show configuration
-  /clear             Clear conversation history
-  /turns <n>         Set max turns per task (default: {MAX_TURNS})
-  /verify <cmd>      Set verification command (empty = auto-detect)
-  /cd <path>         Change working directory
-  /image <path>      Attach image(s) for next task
-  /images            List attached images
-  /clearimages       Remove all attached images
-"""
+def print_help() -> None:
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column("Command", style="bold cyan")
+    table.add_column("Description")
+    table.add_row("/help", "Show this help")
+    table.add_row("/quit", "Exit")
+    table.add_row("/status", "Show configuration")
+    table.add_row("/clear", "Clear conversation history")
+    table.add_row(f"/turns <n>", f"Set max turns per task (default: {MAX_TURNS})")
+    table.add_row("/verify <cmd>", "Set verification command (empty = auto-detect)")
+    table.add_row("/cd <path>", "Change working directory")
+    table.add_row("/image <path>", "Attach image(s) for next task")
+    table.add_row("/images", "List attached images")
+    table.add_row("/clearimages", "Remove all attached images")
+    console.print(Panel(table, title="[bold]Commands[/bold]", border_style="dim"))
 
 
 def print_status(claude_ok, codex_ok, cwd, verify_cmd, max_turns, images):
-    found = f"{GREEN}found{RESET}"
-    missing = f"{RED}not found{RESET}"
-    print(f"\n{BOLD}Status:{RESET}")
-    print(f"  Working dir: {cwd}")
-    print(f"  Claude CLI:  {found if claude_ok else missing}")
-    print(f"  Codex CLI:   {found if codex_ok else missing}")
-    print(f"  Verify cmd:  {verify_cmd or '(auto-detect)'}")
-    print(f"  Max turns:   {max_turns}")
-    print(f"  Images:      {len(images)} attached")
+    table = Table(show_header=False, box=None, padding=(0, 1))
+    table.add_column("Key", style="bold")
+    table.add_column("Value")
+    table.add_row("Working dir", cwd)
+    table.add_row("Claude CLI", "[green]found[/green]" if claude_ok else "[red]not found[/red]")
+    table.add_row("Codex CLI", "[green]found[/green]" if codex_ok else "[red]not found[/red]")
+    table.add_row("Verify cmd", verify_cmd or "[dim](auto-detect)[/dim]")
+    table.add_row("Max turns", str(max_turns))
+    table.add_row("Images", f"{len(images)} attached")
+    console.print(Panel(table, title="[bold]Status[/bold]", border_style="dim"))
 
 
 # ── Image handling ───────────────────────────────────────────────────────────
@@ -292,10 +300,10 @@ def resolve_image_path(path_str: str, cwd: str) -> str | None:
     if not p.is_absolute():
         p = (Path(cwd) / p).resolve()
     if not p.exists():
-        print(f"  {RED}Image not found: {p}{RESET}")
+        console.print(f"  [red]Image not found: {p}[/red]")
         return None
     if p.suffix.lower() not in IMAGE_EXTENSIONS:
-        print(f"  {YELLOW}Warning: {p.name} may not be an image{RESET}")
+        console.print(f"  [yellow]Warning: {p.name} may not be an image[/yellow]")
     return str(p)
 
 
@@ -323,7 +331,7 @@ def collaborate(
         agents.append(("codex", "Codex", "Claude", GREEN, run_codex))
 
     if not agents:
-        print(f"{RED}No agents available.{RESET}")
+        console.print("[red]No agents available.[/red]")
         return
 
     consecutive_done = 0
@@ -342,6 +350,7 @@ def collaborate(
 
         # If verification failed last round, tell the agent
         if last_had_changes:
+            console.print(f"  [dim]Running verification...[/dim]")
             passed, verify_output = run_verify(cwd, verify_cmd)
             if not passed:
                 prompt += (
@@ -350,12 +359,15 @@ def collaborate(
                     f"Fix these errors."
                 )
                 history.append(("system", f"Verification failed:\n{verify_output}"))
+                console.print(f"  [red]Verification failed[/red]")
             else:
                 prompt += "\n\n[System]: Verification passed after recent changes."
                 history.append(("system", "Verification passed."))
+                console.print(f"  [green]Verification passed[/green]")
             last_had_changes = False
 
-        print(f"\n{DIM}[{timestamp()}] {name}'s turn (#{turn})...{RESET}")
+        style = AGENT_STYLES.get(name, "white")
+        console.print(f"\n[dim]\\[{timestamp()}][/dim] [{style} bold]{name}[/{style} bold][dim]'s turn (#{turn})...[/dim]")
         start = time.time()
 
         # Only pass images on first turn for each agent
@@ -364,9 +376,8 @@ def collaborate(
         duration = elapsed_str(start)
 
         if is_error(response):
-            print(f"  {YELLOW}{name} errored: {response[:200]}{RESET}")
+            console.print(f"  [yellow]{name} errored: {response[:200]}[/yellow]")
             history.append((role, response))
-            # Don't count errors as DONE
             consecutive_done = 0
             continue
 
@@ -377,7 +388,7 @@ def collaborate(
         if is_done_or_pass(response):
             consecutive_done += 1
             if consecutive_done >= len(agents):
-                print(f"\n{BOLD}{CYAN}All agents agree: task complete.{RESET}")
+                console.print(f"\n[bold cyan]All agents agree: task complete.[/bold cyan]")
                 break
         else:
             consecutive_done = 0
@@ -387,15 +398,16 @@ def collaborate(
                 last_had_changes = True
 
     else:
-        print(f"\n{YELLOW}Reached max turns ({max_turns}). Stopping.{RESET}")
+        console.print(f"\n[yellow]Reached max turns ({max_turns}). Stopping.[/yellow]")
 
     # Final verification
+    console.print(f"\n[dim]Running final verification...[/dim]")
     passed, verify_output = run_verify(cwd, verify_cmd)
     if passed:
-        print(f"\n{GREEN}Final verification: passed{RESET}")
+        console.print(f"[bold green]Final verification: passed[/bold green]")
     else:
-        print(f"\n{RED}Final verification: FAILED{RESET}")
-        print(f"{DIM}{verify_output[:500]}{RESET}")
+        console.print(f"[bold red]Final verification: FAILED[/bold red]")
+        console.print(f"[dim]{verify_output[:500]}[/dim]")
 
 
 # ── Command handling ─────────────────────────────────────────────────────────
@@ -409,11 +421,11 @@ def handle_command(
     """Returns (is_command, max_turns, verify_cmd, cwd)."""
 
     if user_input == "/quit":
-        print(f"{DIM}Goodbye!{RESET}")
+        console.print("[dim]Goodbye![/dim]")
         sys.exit(0)
 
     if user_input == "/help":
-        print(HELP_TEXT)
+        print_help()
         return True, max_turns, verify_cmd, cwd
 
     if user_input == "/status":
@@ -422,20 +434,20 @@ def handle_command(
 
     if user_input == "/clear":
         history.clear()
-        print(f"  {DIM}Conversation cleared.{RESET}")
+        console.print("  [dim]Conversation cleared.[/dim]")
         return True, max_turns, verify_cmd, cwd
 
     if user_input.startswith("/turns "):
         try:
             max_turns = int(user_input.split()[1])
-            print(f"  {DIM}Max turns set to {max_turns}{RESET}")
+            console.print(f"  [dim]Max turns set to {max_turns}[/dim]")
         except ValueError:
-            print(f"  {RED}Usage: /turns <number>{RESET}")
+            console.print("  [red]Usage: /turns <number>[/red]")
         return True, max_turns, verify_cmd, cwd
 
     if user_input == "/verify" or user_input.startswith("/verify "):
         verify_cmd = user_input[7:].strip() or None
-        print(f"  {DIM}Verify: {verify_cmd or '(auto-detect)'}{RESET}")
+        console.print(f"  [dim]Verify: {verify_cmd or '(auto-detect)'}[/dim]")
         return True, max_turns, verify_cmd, cwd
 
     if user_input.startswith("/cd "):
@@ -445,9 +457,9 @@ def handle_command(
         if target.is_dir():
             cwd = str(target)
             verify_cmd = detect_verify_command(cwd)
-            print(f"  {DIM}Working dir: {cwd}{RESET}")
+            console.print(f"  [dim]Working dir: {cwd}[/dim]")
         else:
-            print(f"  {RED}Not a directory: {target}{RESET}")
+            console.print(f"  [red]Not a directory: {target}[/red]")
         return True, max_turns, verify_cmd, cwd
 
     if user_input.startswith("/image "):
@@ -455,24 +467,24 @@ def handle_command(
             resolved = resolve_image_path(raw, cwd)
             if resolved:
                 images.append(resolved)
-                print(f"  {DIM}Attached: {resolved}{RESET}")
+                console.print(f"  [dim]Attached: {resolved}[/dim]")
         return True, max_turns, verify_cmd, cwd
 
     if user_input == "/images":
         if images:
             for img in images:
-                print(f"  {DIM}{img}{RESET}")
+                console.print(f"  [dim]{img}[/dim]")
         else:
-            print(f"  {DIM}No images attached.{RESET}")
+            console.print("  [dim]No images attached.[/dim]")
         return True, max_turns, verify_cmd, cwd
 
     if user_input == "/clearimages":
         images.clear()
-        print(f"  {DIM}Images cleared.{RESET}")
+        console.print("  [dim]Images cleared.[/dim]")
         return True, max_turns, verify_cmd, cwd
 
     if user_input.startswith("/"):
-        print(f"  {YELLOW}Unknown command. Type /help{RESET}")
+        console.print("  [yellow]Unknown command. Type /help[/yellow]")
         return True, max_turns, verify_cmd, cwd
 
     return False, max_turns, verify_cmd, cwd
@@ -483,8 +495,8 @@ def handle_command(
 
 def main() -> None:
     if os.environ.get("CLAUDECODE"):
-        print(f"{YELLOW}Warning: Running inside a Claude Code session.")
-        print(f"claude -p may not work. Run this directly in your terminal.{RESET}")
+        console.print("[yellow]Warning: Running inside a Claude Code session.")
+        console.print("claude -p may not work. Run this directly in your terminal.[/yellow]")
 
     claude_ok = find_cli("claude") is not None
     codex_ok = find_cli("codex") is not None
@@ -500,16 +512,16 @@ def main() -> None:
     print_status(claude_ok, codex_ok, cwd, verify_cmd, max_turns, images)
 
     if not claude_ok and not codex_ok:
-        print(f"\n{RED}Error: No CLI agents found. Install claude or codex.{RESET}")
+        console.print("\n[red bold]Error: No CLI agents found. Install claude or codex.[/red bold]")
         sys.exit(1)
 
-    print()
+    console.print()
 
     while True:
         try:
-            user_input = input(f"{BOLD}{WHITE}You > {RESET}").strip()
+            user_input = console.input("[bold white]You > [/bold white]").strip()
         except (EOFError, KeyboardInterrupt):
-            print(f"\n{DIM}Goodbye!{RESET}")
+            console.print("\n[dim]Goodbye![/dim]")
             break
 
         if not user_input:
@@ -532,9 +544,9 @@ def main() -> None:
                 verify_cmd, max_turns,
             )
         except KeyboardInterrupt:
-            print(f"\n{YELLOW}Task interrupted.{RESET}")
+            console.print(f"\n[yellow]Task interrupted.[/yellow]")
 
-        print(f"\n{DIM}Total: {elapsed_str(total_start)}{RESET}")
+        console.print(f"\n[dim]Total: {elapsed_str(total_start)}[/dim]")
 
         if images:
             images.clear()
