@@ -1,17 +1,26 @@
-"""Orchestrator that runs actual claude and codex CLI tools as subprocesses.
+"""Director - Team Leader - Teammate orchestration engine.
 
-Design: Free-form collaboration. No fixed phases. Both agents see the full
-conversation and decide themselves what to do -- write code, review, fix,
-run tests, or pass. The orchestrator just manages turns and verification.
+Architecture:
+  Director (User) -> Team Leader (claude -p) -> Teammates (claude -p, codex exec)
+
+The Team Leader is an intelligent Claude instance that:
+  - Understands the Director's intent
+  - Breaks down tasks and dispatches to Teammates
+  - Reviews teammate output and decides next steps
+  - Runs verification
+  - Only reports to Director when work is complete
+
+Teammates are CLI subprocesses that do the actual work in full-auto mode.
+Their output streams directly to the terminal so the Director can observe.
 
 Usage: python -m claude_and_codex
-  (should be run outside of claude/codex sessions)
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -20,43 +29,51 @@ from datetime import datetime
 from pathlib import Path
 
 from rich.console import Console
-from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
-from rich.text import Text
+from rich.markdown import Markdown
 
 console = Console()
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-MAX_TURNS = 12          # Max total agent turns per task
-CLI_TIMEOUT = 600       # 10 min per agent call
+MAX_ROUNDS = 8          # Max team leader reasoning rounds per task
+CLI_TIMEOUT = 600       # 10 min per CLI call
 VERIFY_TIMEOUT = 120    # 2 min for test runs
 PROMPT_MAX_CHARS = 50_000
 CODEX_ARG_LIMIT = 7500
 
-# ANSI escape codes for terminal output
-BOLD = "\033[1m"
-DIM = "\033[2m"
-RED = "\033[31m"
-GREEN = "\033[32m"
-YELLOW = "\033[33m"
-MAGENTA = "\033[35m"
-WHITE = "\033[37m"
-RESET = "\033[0m"
+TEAM_LEADER_SYSTEM = """\
+You are the TEAM LEADER in a Director-Team Leader-Teammate system.
 
-COLLAB_SYSTEM = """\
-You are {name}, collaborating with {partner} on a coding task.
-You share a workspace. You can see everything the other agent has said and done.
+The DIRECTOR (user) gives you tasks. You have two TEAMMATES:
+- Claude Code (via DISPATCH_CLAUDE) -- strong at analysis, architecture, careful code
+- Codex (via DISPATCH_CODEX) -- strong at fast iteration, generation, different perspective
 
-Guidelines:
-- Do whatever is most useful right now: write code, fix bugs, review, suggest, run tests.
-- Do NOT repeat what the other agent already did.
-- Do NOT ask the user for clarification. Figure it out together.
-- If you made code changes, mention what files you changed.
-- When you think the task is fully complete and verified, say DONE.
-- If the other agent already handled everything well, say PASS.
-- Be concise. Don't narrate -- just do the work.
+Your job:
+1. Understand what the Director wants
+2. Break down the task if needed
+3. Dispatch work to teammates using commands
+4. Review their output (you'll see it in the conversation)
+5. Run verification when code changes are made
+6. Continue until the task is fully complete
+7. Report the final result to the Director
+
+COMMANDS (put these on their own line, exactly as shown):
+
+  DISPATCH_CLAUDE: <instruction for Claude Code>
+  DISPATCH_CODEX: <instruction for Codex>
+  VERIFY
+  DONE: <summary for the Director>
+
+Rules:
+- You can dispatch to one or both teammates in a single response
+- After dispatching, you'll see their output and can decide next steps
+- ALWAYS verify after code changes before reporting DONE
+- If a teammate's work has issues, dispatch a fix (to same or other teammate)
+- Do NOT do the coding work yourself -- dispatch to teammates
+- Be concise in your reasoning. Focus on coordination, not narration.
+- NEVER ask the Director for clarification. Figure it out yourself.
 """
 
 
@@ -84,28 +101,6 @@ def truncate(text: str, max_len: int = 2000) -> str:
     return text[:max_len] + f"\n... ({len(text)} chars total)"
 
 
-def build_context(history: list[tuple[str, str]], max_entries: int = 12) -> str:
-    labels = {"user": "User", "claude": "Claude", "codex": "Codex", "system": "System"}
-    parts: list[str] = []
-    for role, content in history[-max_entries:]:
-        label = labels.get(role, role)
-        parts.append(f"[{label}]: {truncate(content)}")
-    return "\n\n".join(parts)
-
-
-def is_done_or_pass(text: str) -> bool:
-    """Check if the agent signals completion."""
-    if not text:
-        return True
-    upper = text.strip().upper()
-    # Starts with PASS or DONE (handles "PASS — waiting..." style)
-    if upper.startswith("PASS") or upper.startswith("DONE"):
-        return True
-    # Last line starts with PASS/DONE
-    last_line = upper.split("\n")[-1].strip()
-    return last_line.startswith("PASS") or last_line.startswith("DONE")
-
-
 def is_error(text: str | None) -> bool:
     if not text:
         return True
@@ -121,12 +116,9 @@ def run_cli(
     timeout: int = CLI_TIMEOUT,
     env_overrides: dict[str, str | None] | None = None,
     stdin_text: str | None = None,
+    stream: bool = True,
 ) -> str:
-    """Run a CLI tool, letting it render directly to terminal.
-
-    The CLI's own stdout goes straight to the user's terminal (inherited).
-    We only capture stdout for conversation history via a tee approach.
-    """
+    """Run a CLI tool. Streams output to terminal if stream=True."""
     env = os.environ.copy()
     for key, value in (env_overrides or {}).items():
         if value is None:
@@ -135,39 +127,46 @@ def run_cli(
             env[key] = value
 
     try:
-        # Pipe stdout so we can capture it, but tee each line to terminal
-        proc = subprocess.Popen(
-            args,
-            stdin=subprocess.PIPE if stdin_text else None,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,  # Merge stderr into stdout
-            cwd=cwd, env=env,
-            encoding="utf-8", errors="replace",
-        )
+        if stream:
+            proc = subprocess.Popen(
+                args,
+                stdin=subprocess.PIPE if stdin_text else None,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                cwd=cwd, env=env,
+                encoding="utf-8", errors="replace",
+            )
+            if stdin_text and proc.stdin:
+                proc.stdin.write(stdin_text)
+                proc.stdin.close()
 
-        if stdin_text and proc.stdin:
-            proc.stdin.write(stdin_text)
-            proc.stdin.close()
-
-        captured: list[str] = []
-        deadline = time.time() + timeout
-
-        for line in iter(proc.stdout.readline, ""):
-            if time.time() > deadline:
-                proc.kill()
-                return f"[Error: {name} timed out after {timeout}s]"
-            # Pass through directly — let the CLI's formatting show
-            sys.stdout.write(line)
-            sys.stdout.flush()
-            captured.append(line)
-
-        proc.wait()
-        return "".join(captured).strip() or f"[No output from {name}]"
+            captured: list[str] = []
+            deadline = time.time() + timeout
+            for line in iter(proc.stdout.readline, ""):
+                if time.time() > deadline:
+                    proc.kill()
+                    return f"[Error: {name} timed out after {timeout}s]"
+                sys.stdout.write(line)
+                sys.stdout.flush()
+                captured.append(line)
+            proc.wait()
+            return "".join(captured).strip() or f"[No output from {name}]"
+        else:
+            result = subprocess.run(
+                args, input=stdin_text,
+                capture_output=True, text=True, timeout=timeout,
+                cwd=cwd, env=env, encoding="utf-8", errors="replace",
+            )
+            output = (result.stdout or "").strip()
+            if result.returncode != 0 and result.stderr:
+                output += f"\n[stderr: {result.stderr.strip()[:500]}]"
+            return output or f"[No output from {name}]"
     except Exception as e:
         return f"[Error running {name}: {type(e).__name__}: {e}]"
 
 
-def run_claude(prompt: str, cwd: str, images: list[str] | None = None) -> str:
+def run_claude(prompt: str, cwd: str, images: list[str] | None = None,
+               stream: bool = True) -> str:
     claude_bin = find_cli("claude")
     if not claude_bin:
         return "[Error: claude CLI not found on PATH]"
@@ -176,7 +175,6 @@ def run_claude(prompt: str, cwd: str, images: list[str] | None = None) -> str:
     if images:
         refs = "\n".join(f"- {img}" for img in images)
         full_prompt += f"\n\nAttached images (read as needed):\n{refs}"
-
     if len(full_prompt) > PROMPT_MAX_CHARS:
         full_prompt = full_prompt[:PROMPT_MAX_CHARS] + "\n[prompt truncated]"
 
@@ -185,10 +183,12 @@ def run_claude(prompt: str, cwd: str, images: list[str] | None = None) -> str:
         [claude_bin, "-p", "--dangerously-skip-permissions"],
         cwd, stdin_text=full_prompt,
         env_overrides={"CLAUDECODE": None},
+        stream=stream,
     )
 
 
-def run_codex(prompt: str, cwd: str, images: list[str] | None = None) -> str:
+def run_codex(prompt: str, cwd: str, images: list[str] | None = None,
+              stream: bool = True) -> str:
     codex_bin = find_cli("codex")
     if not codex_bin:
         return "[Error: codex CLI not found on PATH]"
@@ -208,12 +208,12 @@ def run_codex(prompt: str, cwd: str, images: list[str] | None = None) -> str:
                 f"Read your full task from '{prompt_file}'. Execute it. "
                 f"Delete the file when done."
             )
-            return run_cli("Codex", args, cwd)
+            return run_cli("Codex", args, cwd, stream=stream)
         finally:
             prompt_file.unlink(missing_ok=True)
     else:
         args.append(prompt)
-        return run_cli("Codex", args, cwd)
+        return run_cli("Codex", args, cwd, stream=stream)
 
 
 # ── Verification ─────────────────────────────────────────────────────────────
@@ -242,7 +242,6 @@ def run_verify(cwd: str, verify_cmd: str | None = None) -> tuple[bool, str]:
     cmd = verify_cmd or detect_verify_command(cwd)
     if cmd is None:
         return True, "(no verify command)"
-
     try:
         result = subprocess.run(
             cmd, shell=True, capture_output=True, text=True,
@@ -257,36 +256,43 @@ def run_verify(cwd: str, verify_cmd: str | None = None) -> tuple[bool, str]:
         return False, f"Verification error: {e}"
 
 
+# ── Command parsing ──────────────────────────────────────────────────────────
+
+
+def parse_leader_commands(response: str) -> list[tuple[str, str]]:
+    """Parse structured commands from the Team Leader's response.
+
+    Returns list of (command, argument) tuples.
+    Commands: DISPATCH_CLAUDE, DISPATCH_CODEX, VERIFY, DONE
+    """
+    commands: list[tuple[str, str]] = []
+    for line in response.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("DISPATCH_CLAUDE:"):
+            commands.append(("DISPATCH_CLAUDE", stripped[16:].strip()))
+        elif stripped.startswith("DISPATCH_CODEX:"):
+            commands.append(("DISPATCH_CODEX", stripped[15:].strip()))
+        elif stripped.strip() == "VERIFY":
+            commands.append(("VERIFY", ""))
+        elif stripped.startswith("DONE:"):
+            commands.append(("DONE", stripped[5:].strip()))
+        elif stripped == "DONE":
+            commands.append(("DONE", "Task complete."))
+    return commands
+
+
 # ── Display ──────────────────────────────────────────────────────────────────
-
-AGENT_STYLES = {
-    "Claude": "magenta",
-    "Codex": "green",
-}
-
-
-def print_agent(name: str, color: str, text: str, duration: str = "") -> None:
-    """Display agent output in a Rich panel."""
-    style = AGENT_STYLES.get(name, color)
-    subtitle = f"{duration}" if duration else None
-    content = Markdown(text) if any(c in text for c in ["```", "**", "- ", "# "]) else Text(text)
-    console.print(Panel(
-        content,
-        title=f"[bold]{name}[/bold]",
-        subtitle=subtitle,
-        border_style=style,
-        padding=(0, 1),
-    ))
 
 
 def print_banner() -> None:
     console.print()
     console.print(Panel(
-        "[dim]Both agents collaborate freely on your task.\n"
-        "No fixed workflow -- they decide what to do.\n"
+        "[dim]Director-Team Leader-Teammate model.\n"
+        "You (Director) give tasks. The Team Leader coordinates.\n"
+        "Teammates (Claude Code + Codex) do the work.\n"
         "Type /help for commands.[/dim]",
-        title="[bold]claude-and-codex v0.5[/bold]",
-        subtitle="Free-form AI collaboration",
+        title="[bold]claude-and-codex v0.6[/bold]",
+        subtitle="AI Team Collaboration",
         border_style="cyan",
         padding=(1, 2),
     ))
@@ -300,7 +306,7 @@ def print_help() -> None:
     table.add_row("/quit", "Exit")
     table.add_row("/status", "Show configuration")
     table.add_row("/clear", "Clear conversation history")
-    table.add_row(f"/turns <n>", f"Set max turns per task (default: {MAX_TURNS})")
+    table.add_row("/rounds <n>", f"Set max rounds per task (default: {MAX_ROUNDS})")
     table.add_row("/verify <cmd>", "Set verification command (empty = auto-detect)")
     table.add_row("/cd <path>", "Change working directory")
     table.add_row("/image <path>", "Attach image(s) for next task")
@@ -309,7 +315,7 @@ def print_help() -> None:
     console.print(Panel(table, title="[bold]Commands[/bold]", border_style="dim"))
 
 
-def print_status(claude_ok, codex_ok, cwd, verify_cmd, max_turns, images):
+def print_status(claude_ok, codex_ok, cwd, verify_cmd, max_rounds, images):
     table = Table(show_header=False, box=None, padding=(0, 1))
     table.add_column("Key", style="bold")
     table.add_column("Value")
@@ -317,7 +323,7 @@ def print_status(claude_ok, codex_ok, cwd, verify_cmd, max_turns, images):
     table.add_row("Claude CLI", "[green]found[/green]" if claude_ok else "[red]not found[/red]")
     table.add_row("Codex CLI", "[green]found[/green]" if codex_ok else "[red]not found[/red]")
     table.add_row("Verify cmd", verify_cmd or "[dim](auto-detect)[/dim]")
-    table.add_row("Max turns", str(max_turns))
+    table.add_row("Max rounds", str(max_rounds))
     table.add_row("Images", f"{len(images)} attached")
     console.print(Panel(table, title="[bold]Status[/bold]", border_style="dim"))
 
@@ -339,106 +345,136 @@ def resolve_image_path(path_str: str, cwd: str) -> str | None:
     return str(p)
 
 
-# ── Core collaboration loop ─────────────────────────────────────────────────
+# ── Core: Team Leader loop ──────────────────────────────────────────────────
 
 
-def collaborate(
+def run_task(
+    user_request: str,
     cwd: str,
     claude_ok: bool,
     codex_ok: bool,
     history: list[tuple[str, str]],
     images: list[str],
     verify_cmd: str | None,
-    max_turns: int,
+    max_rounds: int,
 ) -> None:
-    """Free-form collaboration loop.
+    """Run the Director-Team Leader-Teammate loop for one task."""
 
-    Agents take turns. Each agent's CLI output renders directly to terminal
-    (no capture/re-render). The orchestrator just adds thin headers and
-    manages turn order.
-    """
-    agents = []
-    if claude_ok:
-        agents.append(("claude", "Claude", "Codex", run_claude))
-    if codex_ok:
-        agents.append(("codex", "Codex", "Claude", run_codex))
+    # Build conversation log for the team leader
+    # (separate from the director-facing history)
+    team_log: list[str] = []
+    team_log.append(f"[Director's request]: {user_request}")
 
-    if not agents:
-        console.print("[red]No agents available.[/red]")
-        return
+    for round_num in range(1, max_rounds + 1):
+        console.rule(
+            f"[cyan bold]Team Leader[/cyan bold]  [dim]round {round_num}/{max_rounds}[/dim]",
+            style="cyan",
+        )
 
-    consecutive_done = 0
-    turn = 0
+        # Ask Team Leader what to do
+        leader_prompt = (
+            f"{TEAM_LEADER_SYSTEM}\n\n"
+            f"Working directory: {cwd}\n"
+            f"Available teammates: "
+            f"{'Claude Code' if claude_ok else '(unavailable)'}, "
+            f"{'Codex' if codex_ok else '(unavailable)'}\n\n"
+            f"Conversation log:\n" + "\n\n".join(team_log)
+        )
 
-    while turn < max_turns:
-        role, name, partner, runner = agents[turn % len(agents)]
-        turn += 1
-
-        context = build_context(history)
-        system = COLLAB_SYSTEM.format(name=name, partner=partner)
-        prompt = f"{system}\nConversation so far:\n{context}"
-
-        # Verification after changes
-        if turn > 1 and turn % len(agents) == 1:
-            passed, verify_output = run_verify(cwd, verify_cmd)
-            if not passed:
-                prompt += (
-                    f"\n\n[System]: Verification FAILED:\n"
-                    f"```\n{verify_output}\n```\nFix these errors."
-                )
-                history.append(("system", f"Verification failed:\n{verify_output}"))
-                console.print("[red]Verification failed[/red]")
-            else:
-                history.append(("system", "Verification passed."))
-                console.print("[green]Verification passed[/green]")
-            context = build_context(history)
-            prompt = f"{system}\nConversation so far:\n{context}"
-
-        # Header
-        style = AGENT_STYLES.get(name, "white")
-        console.rule(f"[{style} bold]{name}[/{style} bold]  [dim]turn #{turn}[/dim]", style=style)
-
+        # Team Leader thinks (captured, not streamed — it's coordination, not work)
+        console.print("[dim]Team Leader thinking...[/dim]")
         start = time.time()
-        img = images if turn <= len(agents) else None
-        response = runner(prompt, cwd, images=img)
-        duration = elapsed_str(start)
+        leader_response = run_claude(leader_prompt, cwd, stream=False)
+        console.print(f"[dim]({elapsed_str(start)})[/dim]")
 
-        console.print(f"[dim]({duration})[/dim]")
-        history.append((role, response))
+        if is_error(leader_response):
+            console.print(f"[red]Team Leader error: {leader_response[:300]}[/red]")
+            break
 
-        if is_error(response):
-            consecutive_done = 0
+        # Show the Team Leader's reasoning
+        console.print(Panel(
+            leader_response,
+            title="[bold cyan]Team Leader[/bold cyan]",
+            border_style="cyan",
+            padding=(0, 1),
+        ))
+
+        team_log.append(f"[Team Leader]: {leader_response}")
+
+        # Parse and execute commands
+        commands = parse_leader_commands(leader_response)
+
+        if not commands:
+            # No commands found — leader is just thinking/responding
+            team_log.append("[System]: No commands detected. Continue or use DONE.")
             continue
 
-        if is_done_or_pass(response):
-            consecutive_done += 1
-            if consecutive_done >= len(agents):
-                console.print(f"\n[bold cyan]All agents agree: task complete.[/bold cyan]")
+        done = False
+        for cmd, arg in commands:
+            if cmd == "DISPATCH_CLAUDE":
+                if not claude_ok:
+                    team_log.append("[System]: Claude not available.")
+                    console.print("[yellow]Claude not available, skipping.[/yellow]")
+                    continue
+                console.rule("[magenta bold]Claude Code[/magenta bold]  [dim]teammate[/dim]", style="magenta")
+                start = time.time()
+                img = images if round_num == 1 else None
+                result = run_claude(arg, cwd, images=img, stream=True)
+                console.print(f"\n[dim]({elapsed_str(start)})[/dim]")
+                team_log.append(f"[Claude Code output]: {truncate(result)}")
+                history.append(("claude", result))
+
+            elif cmd == "DISPATCH_CODEX":
+                if not codex_ok:
+                    team_log.append("[System]: Codex not available.")
+                    console.print("[yellow]Codex not available, skipping.[/yellow]")
+                    continue
+                console.rule("[green bold]Codex[/green bold]  [dim]teammate[/dim]", style="green")
+                start = time.time()
+                img = images if round_num == 1 else None
+                result = run_codex(arg, cwd, images=img, stream=True)
+                console.print(f"\n[dim]({elapsed_str(start)})[/dim]")
+                team_log.append(f"[Codex output]: {truncate(result)}")
+                history.append(("codex", result))
+
+            elif cmd == "VERIFY":
+                console.print("[dim]Running verification...[/dim]")
+                passed, verify_output = run_verify(cwd, verify_cmd)
+                if passed:
+                    console.print("[bold green]Verification: passed[/bold green]")
+                    team_log.append("[Verification]: PASSED")
+                else:
+                    console.print("[bold red]Verification: FAILED[/bold red]")
+                    console.print(f"[dim]{verify_output[:500]}[/dim]")
+                    team_log.append(f"[Verification]: FAILED\n{verify_output}")
+
+            elif cmd == "DONE":
+                console.print()
+                console.print(Panel(
+                    arg or "Task complete.",
+                    title="[bold cyan]Result[/bold cyan]",
+                    border_style="cyan",
+                    padding=(0, 1),
+                ))
+                history.append(("system", f"Task complete: {arg}"))
+                done = True
                 break
-        else:
-            consecutive_done = 0
 
+        if done:
+            break
     else:
-        console.print(f"\n[yellow]Reached max turns ({max_turns}).[/yellow]")
-
-    # Final verification
-    passed, verify_output = run_verify(cwd, verify_cmd)
-    if passed:
-        console.print(f"\n[bold green]Final verification: passed[/bold green]")
-    else:
-        console.print(f"\n[bold red]Final verification: FAILED[/bold red]")
-        console.print(f"[dim]{verify_output[:500]}[/dim]")
+        console.print(f"\n[yellow]Reached max rounds ({max_rounds}).[/yellow]")
 
 
 # ── Command handling ─────────────────────────────────────────────────────────
 
 
 def handle_command(
-    user_input: str, max_turns: int, verify_cmd: str | None,
+    user_input: str, max_rounds: int, verify_cmd: str | None,
     images: list[str], cwd: str, history: list[tuple[str, str]],
     claude_ok: bool, codex_ok: bool,
 ) -> tuple[bool, int, str | None, str]:
-    """Returns (is_command, max_turns, verify_cmd, cwd)."""
+    """Returns (is_command, max_rounds, verify_cmd, cwd)."""
 
     if user_input == "/quit":
         console.print("[dim]Goodbye![/dim]")
@@ -446,29 +482,29 @@ def handle_command(
 
     if user_input == "/help":
         print_help()
-        return True, max_turns, verify_cmd, cwd
+        return True, max_rounds, verify_cmd, cwd
 
     if user_input == "/status":
-        print_status(claude_ok, codex_ok, cwd, verify_cmd, max_turns, images)
-        return True, max_turns, verify_cmd, cwd
+        print_status(claude_ok, codex_ok, cwd, verify_cmd, max_rounds, images)
+        return True, max_rounds, verify_cmd, cwd
 
     if user_input == "/clear":
         history.clear()
         console.print("  [dim]Conversation cleared.[/dim]")
-        return True, max_turns, verify_cmd, cwd
+        return True, max_rounds, verify_cmd, cwd
 
-    if user_input.startswith("/turns "):
+    if user_input.startswith("/rounds "):
         try:
-            max_turns = int(user_input.split()[1])
-            console.print(f"  [dim]Max turns set to {max_turns}[/dim]")
+            max_rounds = int(user_input.split()[1])
+            console.print(f"  [dim]Max rounds set to {max_rounds}[/dim]")
         except ValueError:
-            console.print("  [red]Usage: /turns <number>[/red]")
-        return True, max_turns, verify_cmd, cwd
+            console.print("  [red]Usage: /rounds <number>[/red]")
+        return True, max_rounds, verify_cmd, cwd
 
     if user_input == "/verify" or user_input.startswith("/verify "):
         verify_cmd = user_input[7:].strip() or None
         console.print(f"  [dim]Verify: {verify_cmd or '(auto-detect)'}[/dim]")
-        return True, max_turns, verify_cmd, cwd
+        return True, max_rounds, verify_cmd, cwd
 
     if user_input.startswith("/cd "):
         target = Path(user_input[4:].strip())
@@ -480,7 +516,7 @@ def handle_command(
             console.print(f"  [dim]Working dir: {cwd}[/dim]")
         else:
             console.print(f"  [red]Not a directory: {target}[/red]")
-        return True, max_turns, verify_cmd, cwd
+        return True, max_rounds, verify_cmd, cwd
 
     if user_input.startswith("/image "):
         for raw in user_input[7:].strip().split():
@@ -488,7 +524,7 @@ def handle_command(
             if resolved:
                 images.append(resolved)
                 console.print(f"  [dim]Attached: {resolved}[/dim]")
-        return True, max_turns, verify_cmd, cwd
+        return True, max_rounds, verify_cmd, cwd
 
     if user_input == "/images":
         if images:
@@ -496,18 +532,18 @@ def handle_command(
                 console.print(f"  [dim]{img}[/dim]")
         else:
             console.print("  [dim]No images attached.[/dim]")
-        return True, max_turns, verify_cmd, cwd
+        return True, max_rounds, verify_cmd, cwd
 
     if user_input == "/clearimages":
         images.clear()
         console.print("  [dim]Images cleared.[/dim]")
-        return True, max_turns, verify_cmd, cwd
+        return True, max_rounds, verify_cmd, cwd
 
     if user_input.startswith("/"):
         console.print("  [yellow]Unknown command. Type /help[/yellow]")
-        return True, max_turns, verify_cmd, cwd
+        return True, max_rounds, verify_cmd, cwd
 
-    return False, max_turns, verify_cmd, cwd
+    return False, max_rounds, verify_cmd, cwd
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -524,21 +560,21 @@ def main() -> None:
 
     cwd = os.getcwd()
     verify_cmd = detect_verify_command(cwd)
-    max_turns = MAX_TURNS
+    max_rounds = MAX_ROUNDS
     history: list[tuple[str, str]] = []
     images: list[str] = []
 
-    print_status(claude_ok, codex_ok, cwd, verify_cmd, max_turns, images)
+    print_status(claude_ok, codex_ok, cwd, verify_cmd, max_rounds, images)
 
-    if not claude_ok and not codex_ok:
-        console.print("\n[red bold]Error: No CLI agents found. Install claude or codex.[/red bold]")
+    if not claude_ok:
+        console.print("\n[red bold]Error: Claude CLI required for Team Leader. Install claude.[/red bold]")
         sys.exit(1)
 
     console.print()
 
     while True:
         try:
-            user_input = console.input("[bold white]You > [/bold white]").strip()
+            user_input = console.input("[bold white]Director > [/bold white]").strip()
         except (EOFError, KeyboardInterrupt):
             console.print("\n[dim]Goodbye![/dim]")
             break
@@ -546,21 +582,20 @@ def main() -> None:
         if not user_input:
             continue
 
-        is_cmd, max_turns, verify_cmd, cwd = handle_command(
-            user_input, max_turns, verify_cmd, images, cwd,
+        is_cmd, max_rounds, verify_cmd, cwd = handle_command(
+            user_input, max_rounds, verify_cmd, images, cwd,
             history, claude_ok, codex_ok,
         )
         if is_cmd:
             continue
 
-        # Run collaboration
         total_start = time.time()
         history.append(("user", user_input))
 
         try:
-            collaborate(
-                cwd, claude_ok, codex_ok, history, images,
-                verify_cmd, max_turns,
+            run_task(
+                user_input, cwd, claude_ok, codex_ok,
+                history, images, verify_cmd, max_rounds,
             )
         except KeyboardInterrupt:
             console.print(f"\n[yellow]Task interrupted.[/yellow]")

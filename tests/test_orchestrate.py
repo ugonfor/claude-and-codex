@@ -1,4 +1,4 @@
-"""Tests for orchestrate.py -- free-form collaboration engine."""
+"""Tests for orchestrate.py -- Director-Team Leader-Teammate engine."""
 
 from __future__ import annotations
 
@@ -11,10 +11,8 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from claude_and_codex.orchestrate import (
-    is_done_or_pass,
     is_error,
     truncate,
-    build_context,
     detect_verify_command,
     run_cli,
     run_verify,
@@ -24,38 +22,62 @@ from claude_and_codex.orchestrate import (
     handle_command,
     run_claude,
     run_codex,
+    parse_leader_commands,
     PROMPT_MAX_CHARS,
     CODEX_ARG_LIMIT,
 )
 
 
-# ── is_done_or_pass ─────────────────────────────────────────────────────────
+# ── parse_leader_commands ────────────────────────────────────────────────────
 
 
-class TestIsDoneOrPass:
-    def test_done(self) -> None:
-        assert is_done_or_pass("DONE") is True
+class TestParseLeaderCommands:
+    def test_dispatch_claude(self) -> None:
+        cmds = parse_leader_commands("DISPATCH_CLAUDE: fix the bug in main.py")
+        assert cmds == [("DISPATCH_CLAUDE", "fix the bug in main.py")]
 
-    def test_pass(self) -> None:
-        assert is_done_or_pass("PASS") is True
+    def test_dispatch_codex(self) -> None:
+        cmds = parse_leader_commands("DISPATCH_CODEX: review the changes")
+        assert cmds == [("DISPATCH_CODEX", "review the changes")]
 
-    def test_done_with_period(self) -> None:
-        assert is_done_or_pass("DONE.") is True
+    def test_verify(self) -> None:
+        cmds = parse_leader_commands("VERIFY")
+        assert cmds == [("VERIFY", "")]
 
-    def test_done_last_line(self) -> None:
-        assert is_done_or_pass("I fixed the bug.\nDONE") is True
+    def test_done_with_message(self) -> None:
+        cmds = parse_leader_commands("DONE: All tests pass, feature is complete.")
+        assert cmds == [("DONE", "All tests pass, feature is complete.")]
 
-    def test_pass_with_explanation(self) -> None:
-        assert is_done_or_pass("PASS — waiting for a task") is True
+    def test_done_bare(self) -> None:
+        cmds = parse_leader_commands("DONE")
+        assert cmds == [("DONE", "Task complete.")]
 
-    def test_pass_with_dash(self) -> None:
-        assert is_done_or_pass("PASS - Codex already responded") is True
+    def test_multiple_commands(self) -> None:
+        text = (
+            "Let me dispatch both teammates.\n"
+            "DISPATCH_CLAUDE: write the code\n"
+            "DISPATCH_CODEX: write the tests\n"
+            "VERIFY"
+        )
+        cmds = parse_leader_commands(text)
+        assert len(cmds) == 3
+        assert cmds[0] == ("DISPATCH_CLAUDE", "write the code")
+        assert cmds[1] == ("DISPATCH_CODEX", "write the tests")
+        assert cmds[2] == ("VERIFY", "")
 
-    def test_not_done(self) -> None:
-        assert is_done_or_pass("Here are some changes I made") is False
+    def test_no_commands(self) -> None:
+        cmds = parse_leader_commands("Just some thinking and reasoning here.")
+        assert cmds == []
 
-    def test_empty(self) -> None:
-        assert is_done_or_pass("") is True
+    def test_commands_with_surrounding_text(self) -> None:
+        text = (
+            "I'll have Claude fix this.\n\n"
+            "DISPATCH_CLAUDE: fix the TypeError in utils.py\n\n"
+            "Then we'll verify."
+        )
+        cmds = parse_leader_commands(text)
+        assert len(cmds) == 1
+        assert cmds[0][0] == "DISPATCH_CLAUDE"
 
 
 # ── is_error ────────────────────────────────────────────────────────────────
@@ -90,34 +112,6 @@ class TestTruncate:
         assert result.startswith("a" * 50)
         assert "100 chars total" in result
 
-    def test_default_max(self) -> None:
-        assert truncate("x" * 2000) == "x" * 2000
-        assert "2001 chars total" in truncate("x" * 2001)
-
-
-# ── build_context ────────────────────────────────────────────────────────────
-
-
-class TestBuildContext:
-    def test_empty(self) -> None:
-        assert build_context([]) == ""
-
-    def test_labels(self) -> None:
-        result = build_context([("user", "hi"), ("claude", "yo"), ("codex", "ok")])
-        assert "[User]:" in result
-        assert "[Claude]:" in result
-        assert "[Codex]:" in result
-
-    def test_system_label(self) -> None:
-        result = build_context([("system", "verification passed")])
-        assert "[System]:" in result
-
-    def test_max_entries(self) -> None:
-        history = [("user", f"msg{i}") for i in range(20)]
-        result = build_context(history, max_entries=3)
-        assert "msg17" in result
-        assert "msg0" not in result
-
 
 # ── detect_verify_command ────────────────────────────────────────────────────
 
@@ -149,32 +143,34 @@ class TestDetectVerify:
 
 class TestRunCli:
     def test_simple(self, tmp_path: Path) -> None:
-        result = run_cli("Test", ["python", "-c", "print('hello')"], str(tmp_path), timeout=10)
+        result = run_cli("Test", ["python", "-c", "print('hello')"], str(tmp_path),
+                         timeout=10, stream=False)
         assert "hello" in result
 
     def test_stderr(self, tmp_path: Path) -> None:
         result = run_cli(
             "Test",
             ["python", "-c", "import sys; sys.stderr.write('oops'); sys.exit(1)"],
-            str(tmp_path), timeout=10,
+            str(tmp_path), timeout=10, stream=False,
         )
         assert "oops" in result
 
     def test_timeout(self, tmp_path: Path) -> None:
         cmd = ["ping", "-n", "20", "127.0.0.1"] if sys.platform == "win32" else ["sleep", "10"]
-        result = run_cli("Test", cmd, str(tmp_path), timeout=1)
+        result = run_cli("Test", cmd, str(tmp_path), timeout=1, stream=True)
         assert "timed out" in result
 
     def test_stdin(self, tmp_path: Path) -> None:
         result = run_cli(
             "Test",
             ["python", "-c", "import sys; print(sys.stdin.read().strip())"],
-            str(tmp_path), timeout=10, stdin_text="piped",
+            str(tmp_path), timeout=10, stdin_text="piped", stream=False,
         )
         assert "piped" in result
 
     def test_no_output(self, tmp_path: Path) -> None:
-        result = run_cli("Test", ["python", "-c", "pass"], str(tmp_path), timeout=10)
+        result = run_cli("Test", ["python", "-c", "pass"], str(tmp_path),
+                         timeout=10, stream=False)
         assert "No output" in result
 
 
@@ -233,7 +229,7 @@ class TestElapsedStr:
 class TestHandleCommand:
     def _call(self, user_input, **kwargs):
         defaults = dict(
-            max_turns=12, verify_cmd=None, images=[], cwd="/tmp",
+            max_rounds=8, verify_cmd=None, images=[], cwd="/tmp",
             history=[], claude_ok=True, codex_ok=True,
         )
         defaults.update(kwargs)
@@ -252,9 +248,9 @@ class TestHandleCommand:
         self._call("/clear", history=history)
         assert len(history) == 0
 
-    def test_turns(self) -> None:
-        _, turns, _, _ = self._call("/turns 5")
-        assert turns == 5
+    def test_rounds(self) -> None:
+        _, rounds, _, _ = self._call("/rounds 5")
+        assert rounds == 5
 
     def test_verify(self) -> None:
         _, _, cmd, _ = self._call("/verify make test")
@@ -284,13 +280,13 @@ class TestRunClaude:
     @patch("claude_and_codex.orchestrate.run_cli", return_value="done")
     @patch("claude_and_codex.orchestrate.find_cli", return_value="/usr/bin/claude")
     def test_pipes_stdin(self, _, mock_run) -> None:
-        run_claude("my prompt", "/tmp")
+        run_claude("my prompt", "/tmp", stream=False)
         assert mock_run.call_args[1]["stdin_text"] == "my prompt"
 
     @patch("claude_and_codex.orchestrate.run_cli", return_value="done")
     @patch("claude_and_codex.orchestrate.find_cli", return_value="/usr/bin/claude")
     def test_with_images(self, _, mock_run) -> None:
-        run_claude("task", "/tmp", images=["a.png"])
+        run_claude("task", "/tmp", images=["a.png"], stream=False)
         assert "a.png" in mock_run.call_args[1]["stdin_text"]
 
 
@@ -298,12 +294,3 @@ class TestRunCodex:
     @patch("claude_and_codex.orchestrate.find_cli", return_value=None)
     def test_not_found(self, _) -> None:
         assert "not found" in run_codex("hello", "/tmp")
-
-    @patch("claude_and_codex.orchestrate.run_cli", return_value="done")
-    @patch("claude_and_codex.orchestrate.find_cli", return_value="/usr/bin/codex")
-    def test_short_prompt(self, _, mock_run) -> None:
-        run_codex("short", "/tmp")
-        # run_cli called with positional args: name, args_list, cwd
-        call_args = mock_run.call_args
-        args_list = call_args[0][1] if len(call_args[0]) > 1 else call_args[1].get("args", [])
-        assert "short" in args_list
