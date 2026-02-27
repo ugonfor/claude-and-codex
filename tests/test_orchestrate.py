@@ -45,14 +45,16 @@ class TestIsDoneOrPass:
     def test_done_last_line(self) -> None:
         assert is_done_or_pass("I fixed the bug.\nDONE") is True
 
+    def test_pass_with_explanation(self) -> None:
+        assert is_done_or_pass("PASS — waiting for a task") is True
+
+    def test_pass_with_dash(self) -> None:
+        assert is_done_or_pass("PASS - Codex already responded") is True
+
     def test_not_done(self) -> None:
         assert is_done_or_pass("Here are some changes I made") is False
 
     def test_empty(self) -> None:
-        assert is_done_or_pass("") is True
-
-    def test_none_text(self) -> None:
-        # Simulating empty/no response
         assert is_done_or_pass("") is True
 
 
