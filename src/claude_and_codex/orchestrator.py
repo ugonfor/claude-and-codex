@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Callable, Awaitable
 
 from .models import Message, Role, ToolCall, AgentStatus
 from .conversation import Conversation
 from .agents.base import BaseAgent
 from .config import Config
+from .metrics import MetricsTracker, TurnMetrics
 
 
 class Orchestrator:
@@ -42,6 +44,7 @@ class Orchestrator:
         self.config = config
         self._consecutive_agent_turns = 0
         self._user_turn_count = 0  # For deterministic alternation
+        self.metrics = MetricsTracker()
 
         # UI callbacks
         self.on_status_change = on_status_change
@@ -106,11 +109,21 @@ class Orchestrator:
 
         # Stream response
         full_text = ""
+        t_start = time.monotonic()
         async for chunk in agent.generate_response():
             full_text += chunk
             streaming_msg.content = full_text
             if self.on_stream_chunk:
                 await self.on_stream_chunk(agent.role, chunk, streaming_msg)
+        latency_ms = (time.monotonic() - t_start) * 1000
+
+        # Record metrics
+        self.metrics.record_turn(TurnMetrics(
+            role=agent.role,
+            input_tokens=agent.last_input_tokens,
+            output_tokens=agent.last_output_tokens,
+            latency_ms=latency_ms,
+        ))
 
         # Check for PASS
         if full_text.strip().upper() == "PASS":

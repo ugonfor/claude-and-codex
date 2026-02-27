@@ -23,6 +23,8 @@ class BaseAgent(ABC):
         self.conversation = conversation
         self.tool_registry = tool_registry
         self.status = AgentStatus.IDLE
+        self.last_input_tokens: int = 0
+        self.last_output_tokens: int = 0
 
     @abstractmethod
     async def generate_response(self) -> AsyncIterator[str]:

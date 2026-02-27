@@ -42,6 +42,8 @@ class ClaudeAgent(BaseAgent):
     async def generate_response(self) -> AsyncIterator[str]:
         self.status = AgentStatus.STREAMING
         self._pending_tool_calls = []
+        self.last_input_tokens = 0
+        self.last_output_tokens = 0
 
         messages = self.conversation.to_anthropic_messages()
         tools = self.tool_registry.all_anthropic()
@@ -60,6 +62,9 @@ class ClaudeAgent(BaseAgent):
                             yield event.delta.text
 
                 final_message = await stream.get_final_message()
+                if final_message.usage:
+                    self.last_input_tokens = final_message.usage.input_tokens
+                    self.last_output_tokens = final_message.usage.output_tokens
                 for block in final_message.content:
                     if block.type == "tool_use":
                         self._pending_tool_calls.append(

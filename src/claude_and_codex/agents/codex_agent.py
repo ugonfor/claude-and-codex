@@ -67,6 +67,8 @@ class CodexAgent(BaseAgent):
         """Use ChatGPT backend Responses API (streaming SSE)."""
         self.status = AgentStatus.STREAMING
         self._pending_tool_calls = []
+        self.last_input_tokens = 0
+        self.last_output_tokens = 0
 
         # Build input in Responses API format
         messages = self.conversation.to_openai_messages()
@@ -123,6 +125,9 @@ class CodexAgent(BaseAgent):
                         yield delta
                 elif etype == "response.completed":
                     response = event.get("response", {})
+                    usage = response.get("usage", {})
+                    self.last_input_tokens = usage.get("input_tokens", 0)
+                    self.last_output_tokens = usage.get("output_tokens", 0)
                     for item in response.get("output", []):
                         if item.get("type") == "function_call":
                             try:
@@ -152,6 +157,8 @@ class CodexAgent(BaseAgent):
         """Use standard OpenAI Chat Completions API (streaming)."""
         self.status = AgentStatus.STREAMING
         self._pending_tool_calls = []
+        self.last_input_tokens = 0
+        self.last_output_tokens = 0
 
         messages = self.conversation.to_openai_messages()
         messages.insert(0, {"role": "system", "content": self.build_system_prompt()})
@@ -163,11 +170,15 @@ class CodexAgent(BaseAgent):
                 messages=messages,
                 tools=tools if tools else None,
                 stream=True,
+                stream_options={"include_usage": True},
             )
 
             tool_call_accumulators: dict[int, dict] = {}
 
             async for chunk in stream:
+                if chunk.usage:
+                    self.last_input_tokens = chunk.usage.prompt_tokens or 0
+                    self.last_output_tokens = chunk.usage.completion_tokens or 0
                 delta = chunk.choices[0].delta if chunk.choices else None
                 if delta is None:
                     continue

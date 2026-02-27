@@ -13,6 +13,7 @@ from textual import work
 from .config import Config
 from .models import Role, AgentStatus, Message, ToolCall
 from .conversation import Conversation
+from .export import export_conversation
 from .orchestrator import Orchestrator
 from .agents.claude_agent import ClaudeAgent
 from .agents.codex_agent import CodexAgent
@@ -40,6 +41,8 @@ class CommandHandler:
         "- /clear: clear chat and conversation history\n"
         "- /cd <path>: set working directory for tools\n"
         "- /bypass: toggle bypass tool confirmations (on/off)\n"
+        "- /export [jsonl|markdown|both]: export conversation to file\n"
+        "- /stats: show session token/latency metrics\n"
         "- /help: show this help"
     )
 
@@ -76,6 +79,21 @@ class CommandHandler:
             )
             state = "ON" if self.app.config.bypass_tool_confirmation else "OFF"
             return f"Bypass tool confirmations: {state}"
+
+        if name == "stats":
+            return self.app.orchestrator.metrics.summary()
+
+        if name == "export":
+            fmt = command.argument.strip().lower() or "both"
+            if fmt not in ("jsonl", "markdown", "both"):
+                return "Usage: /export [jsonl|markdown|both]"
+            msgs = self.app.conversation.messages
+            if not msgs:
+                return "Nothing to export — conversation is empty."
+            out_dir = self.app.config.working_directory / "exports"
+            paths = export_conversation(msgs, out_dir, fmt)
+            listing = "\n".join(f"  - {p}" for p in paths)
+            return f"Exported conversation:\n{listing}"
 
         if name == "cd":
             raw_path = command.argument.strip()
@@ -166,7 +184,7 @@ class ClaudeAndCodexApp(App):
         yield Header()
         yield ChatPanel()
         yield InputBar()
-        yield StatusBar()
+        yield StatusBar(metrics=self.orchestrator.metrics)
         yield Footer()
 
     async def on_mount(self) -> None:
@@ -228,6 +246,7 @@ class ClaudeAndCodexApp(App):
 
     async def _on_message_complete(self, message: Message) -> None:
         self.query_one(ChatPanel).update_message(message)
+        self.query_one(StatusBar).refresh()
 
     async def _on_tool_call(self, role: Role, tool_call: ToolCall) -> None:
         self.query_one(ChatPanel).add_tool_call(role, tool_call)

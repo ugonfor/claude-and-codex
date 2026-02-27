@@ -30,18 +30,65 @@ class CodexAuthResult:
 
 
 def discover_claude_keychain() -> str | None:
-    """Read Claude Code API key from macOS Keychain."""
-    if platform.system() != "Darwin":
-        return None
-    try:
-        result = subprocess.run(
-            ["security", "find-generic-password", "-s", "Claude Code", "-w"],
-            capture_output=True, text=True, timeout=5,
+    """Read Claude Code API key from OS credential store.
+
+    - macOS: Keychain via `security` CLI
+    - Windows: Windows Credential Manager via PowerShell
+    - Linux: libsecret via `secret-tool` CLI
+    """
+    system = platform.system()
+
+    if system == "Darwin":
+        try:
+            result = subprocess.run(
+                ["security", "find-generic-password", "-s", "Claude Code", "-w"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except (subprocess.SubprocessError, FileNotFoundError):
+            pass
+
+    elif system == "Windows":
+        # Windows Credential Manager via PowerShell
+        ps_cmd = (
+            "(Get-StoredCredential -Target 'Claude Code' "
+            "-ErrorAction SilentlyContinue).Password | "
+            "ConvertFrom-SecureString -AsPlainText"
         )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except (subprocess.SubprocessError, FileNotFoundError):
-        pass
+        try:
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ps_cmd],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except (subprocess.SubprocessError, FileNotFoundError):
+            pass
+
+        # Fallback: try cmdkey-based approach
+        try:
+            result = subprocess.run(
+                ["cmdkey", "/list:Claude Code"],
+                capture_output=True, text=True, timeout=5,
+            )
+            # cmdkey lists but can't retrieve passwords; if credential exists,
+            # the user likely has ANTHROPIC_API_KEY set or uses file-based auth
+        except (subprocess.SubprocessError, FileNotFoundError):
+            pass
+
+    elif system == "Linux":
+        # libsecret via secret-tool (GNOME Keyring / KDE Wallet)
+        try:
+            result = subprocess.run(
+                ["secret-tool", "lookup", "service", "Claude Code"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except (subprocess.SubprocessError, FileNotFoundError):
+            pass
+
     return None
 
 
@@ -56,27 +103,38 @@ def discover_codex_chatgpt_oauth() -> tuple[str, str] | None:
     - Header: ChatGPT-Account-ID: tokens.account_id
     - API: OpenAI Responses API (streaming only)
     """
-    codex_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
-    auth_path = codex_home / "auth.json"
+    # Check multiple possible Codex config locations
+    candidates = [
+        Path(os.environ["CODEX_HOME"]) if "CODEX_HOME" in os.environ else None,
+        Path.home() / ".codex",
+    ]
+    if platform.system() == "Windows":
+        appdata = os.environ.get("APPDATA", "")
+        if appdata:
+            candidates.append(Path(appdata) / "codex")
 
-    if not auth_path.exists():
-        return None
+    for codex_home in candidates:
+        if codex_home is None:
+            continue
+        auth_path = codex_home / "auth.json"
+        if not auth_path.exists():
+            continue
 
-    try:
-        data = json.loads(auth_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None
+        try:
+            data = json.loads(auth_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
 
-    if data.get("auth_mode") != "chatgpt":
-        # If using API key mode, the OPENAI_API_KEY field might be set
-        return None
+        if data.get("auth_mode") != "chatgpt":
+            continue
 
-    tokens = data.get("tokens", {})
-    access_token = tokens.get("access_token")
-    account_id = tokens.get("account_id")
+        tokens = data.get("tokens", {})
+        access_token = tokens.get("access_token")
+        account_id = tokens.get("account_id")
 
-    if access_token and account_id:
-        return (access_token, account_id)
+        if access_token and account_id:
+            return (access_token, account_id)
+
     return None
 
 
