@@ -16,7 +16,6 @@ import shutil
 import subprocess
 import sys
 import time
-import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -123,9 +122,10 @@ def run_cli(
     env_overrides: dict[str, str | None] | None = None,
     stdin_text: str | None = None,
 ) -> str:
-    """Run a CLI tool, streaming its output live to the terminal.
+    """Run a CLI tool, letting it render directly to terminal.
 
-    Output is both displayed in real-time and captured for history.
+    The CLI's own stdout goes straight to the user's terminal (inherited).
+    We only capture stdout for conversation history via a tee approach.
     """
     env = os.environ.copy()
     for key, value in (env_overrides or {}).items():
@@ -135,43 +135,34 @@ def run_cli(
             env[key] = value
 
     try:
+        # Pipe stdout so we can capture it, but tee each line to terminal
         proc = subprocess.Popen(
             args,
             stdin=subprocess.PIPE if stdin_text else None,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # Merge stderr into stdout
             cwd=cwd, env=env,
             encoding="utf-8", errors="replace",
         )
 
-        # Write stdin and close
         if stdin_text and proc.stdin:
             proc.stdin.write(stdin_text)
             proc.stdin.close()
 
-        # Stream stdout live while capturing
-        captured_lines: list[str] = []
+        captured: list[str] = []
         deadline = time.time() + timeout
 
         for line in iter(proc.stdout.readline, ""):
             if time.time() > deadline:
                 proc.kill()
                 return f"[Error: {name} timed out after {timeout}s]"
-            sys.stdout.write(f"  {line}")
+            # Pass through directly — let the CLI's formatting show
+            sys.stdout.write(line)
             sys.stdout.flush()
-            captured_lines.append(line)
+            captured.append(line)
 
         proc.wait()
-        output = "".join(captured_lines).strip()
-
-        stderr = proc.stderr.read() if proc.stderr else ""
-        if proc.returncode != 0 and stderr.strip():
-            output += f"\n[stderr: {stderr.strip()[:500]}]"
-
-        return output or f"[No output from {name}]"
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        return f"[Error: {name} timed out after {timeout}s]"
+        return "".join(captured).strip() or f"[No output from {name}]"
     except Exception as e:
         return f"[Error running {name}: {type(e).__name__}: {e}]"
 
@@ -351,32 +342,6 @@ def resolve_image_path(path_str: str, cwd: str) -> str | None:
 # ── Core collaboration loop ─────────────────────────────────────────────────
 
 
-def _run_agent_thread(
-    role: str, name: str, partner: str,
-    runner, prompt: str, cwd: str,
-    images: list[str] | None,
-    results: dict,
-    print_lock: threading.Lock,
-) -> None:
-    """Thread target: run one agent and store result."""
-    style = AGENT_STYLES.get(name, "white")
-    with print_lock:
-        console.print(f"  [{style}]{name} working...[/{style}]")
-
-    start = time.time()
-    response = runner(prompt, cwd, images=images)
-    duration = elapsed_str(start)
-
-    with print_lock:
-        if not is_error(response):
-            console.print()
-            print_agent(name, style, response, duration)
-        else:
-            console.print(f"  [yellow]{name} errored: {response[:200]}[/yellow]")
-
-    results[role] = response
-
-
 def collaborate(
     cwd: str,
     claude_ok: bool,
@@ -386,11 +351,11 @@ def collaborate(
     verify_cmd: str | None,
     max_turns: int,
 ) -> None:
-    """Free-form parallel collaboration loop.
+    """Free-form collaboration loop.
 
-    Both agents work simultaneously on each round. Each sees the full
-    conversation and decides what to do. Loop ends when both signal
-    DONE/PASS, or max rounds reached.
+    Agents take turns. Each agent's CLI output renders directly to terminal
+    (no capture/re-render). The orchestrator just adds thin headers and
+    manages turn order.
     """
     agents = []
     if claude_ok:
@@ -402,76 +367,66 @@ def collaborate(
         console.print("[red]No agents available.[/red]")
         return
 
-    round_num = 0
-    max_rounds = max_turns // max(len(agents), 1)
+    consecutive_done = 0
+    turn = 0
 
-    while round_num < max_rounds:
-        round_num += 1
-        console.rule(f"[dim]Round {round_num}[/dim]", style="dim")
+    while turn < max_turns:
+        role, name, partner, runner = agents[turn % len(agents)]
+        turn += 1
 
         context = build_context(history)
+        system = COLLAB_SYSTEM.format(name=name, partner=partner)
+        prompt = f"{system}\nConversation so far:\n{context}"
 
-        # Check verification from previous round
-        verify_suffix = ""
-        if round_num > 1:
-            console.print("  [dim]Running verification...[/dim]")
+        # Verification after changes
+        if turn > 1 and turn % len(agents) == 1:
             passed, verify_output = run_verify(cwd, verify_cmd)
             if not passed:
-                verify_suffix = (
-                    f"\n\n[System]: Verification FAILED after recent changes:\n"
-                    f"```\n{verify_output}\n```\n"
-                    f"Fix these errors."
+                prompt += (
+                    f"\n\n[System]: Verification FAILED:\n"
+                    f"```\n{verify_output}\n```\nFix these errors."
                 )
                 history.append(("system", f"Verification failed:\n{verify_output}"))
-                console.print("  [red]Verification failed[/red]")
+                console.print("[red]Verification failed[/red]")
             else:
-                verify_suffix = "\n\n[System]: Verification passed after recent changes."
                 history.append(("system", "Verification passed."))
-                console.print("  [green]Verification passed[/green]")
+                console.print("[green]Verification passed[/green]")
             context = build_context(history)
+            prompt = f"{system}\nConversation so far:\n{context}"
 
-        # Launch all agents in parallel
-        print_lock = threading.Lock()
-        results: dict[str, str] = {}
-        threads: list[threading.Thread] = []
+        # Header
+        style = AGENT_STYLES.get(name, "white")
+        console.rule(f"[{style} bold]{name}[/{style} bold]  [dim]turn #{turn}[/dim]", style=style)
 
-        for role, name, partner, runner in agents:
-            system = COLLAB_SYSTEM.format(name=name, partner=partner)
-            prompt = f"{system}\nConversation so far:\n{context}{verify_suffix}"
+        start = time.time()
+        img = images if turn <= len(agents) else None
+        response = runner(prompt, cwd, images=img)
+        duration = elapsed_str(start)
 
-            img = images if round_num == 1 else None
-            t = threading.Thread(
-                target=_run_agent_thread,
-                args=(role, name, partner, runner, prompt, cwd, img, results, print_lock),
-            )
-            threads.append(t)
-            t.start()
+        console.print(f"[dim]({duration})[/dim]")
+        history.append((role, response))
 
-        for t in threads:
-            t.join()
+        if is_error(response):
+            consecutive_done = 0
+            continue
 
-        # Record results in history
-        all_done = True
-        for role, name, _, _ in agents:
-            response = results.get(role, "")
-            history.append((role, response))
-            if not is_done_or_pass(response):
-                all_done = False
-
-        if all_done:
-            console.print(f"\n[bold cyan]All agents agree: task complete.[/bold cyan]")
-            break
+        if is_done_or_pass(response):
+            consecutive_done += 1
+            if consecutive_done >= len(agents):
+                console.print(f"\n[bold cyan]All agents agree: task complete.[/bold cyan]")
+                break
+        else:
+            consecutive_done = 0
 
     else:
-        console.print(f"\n[yellow]Reached max rounds ({max_rounds}). Stopping.[/yellow]")
+        console.print(f"\n[yellow]Reached max turns ({max_turns}).[/yellow]")
 
     # Final verification
-    console.print(f"\n[dim]Running final verification...[/dim]")
     passed, verify_output = run_verify(cwd, verify_cmd)
     if passed:
-        console.print(f"[bold green]Final verification: passed[/bold green]")
+        console.print(f"\n[bold green]Final verification: passed[/bold green]")
     else:
-        console.print(f"[bold red]Final verification: FAILED[/bold red]")
+        console.print(f"\n[bold red]Final verification: FAILED[/bold red]")
         console.print(f"[dim]{verify_output[:500]}[/dim]")
 
 
