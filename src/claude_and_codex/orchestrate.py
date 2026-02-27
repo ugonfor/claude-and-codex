@@ -93,13 +93,13 @@ def is_done_or_pass(text: str) -> bool:
     """Check if the agent signals completion."""
     if not text:
         return True
-    stripped = text.strip().upper()
-    # Check if the response is just DONE or PASS (possibly with punctuation)
-    if stripped in ("DONE", "PASS", "DONE.", "PASS."):
+    upper = text.strip().upper()
+    # Starts with PASS or DONE (handles "PASS — waiting..." style)
+    if upper.startswith("PASS") or upper.startswith("DONE"):
         return True
-    # Also check if the last line says DONE
-    last_line = text.strip().split("\n")[-1].strip().upper()
-    return last_line in ("DONE", "PASS", "DONE.", "PASS.")
+    # Last line starts with PASS/DONE
+    last_line = upper.split("\n")[-1].strip()
+    return last_line.startswith("PASS") or last_line.startswith("DONE")
 
 
 def is_error(text: str | None) -> bool:
