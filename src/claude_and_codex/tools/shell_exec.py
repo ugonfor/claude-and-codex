@@ -40,6 +40,7 @@ async def execute_shell(command: str, timeout: int = 30) -> str:
         return output[:_max_output_chars]
     except asyncio.TimeoutError:
         proc.kill()  # type: ignore[possibly-undefined]
+        await proc.wait()  # type: ignore[possibly-undefined]
         return f"Error: Command timed out after {timeout}s"
     except Exception as e:
         return f"Error executing command: {e}"
