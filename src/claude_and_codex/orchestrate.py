@@ -116,30 +116,51 @@ def run_cli(
         return f"[Error running {name}: {e}]"
 
 
-def run_claude(prompt: str, cwd: str, timeout: int = 600) -> str:
+def run_claude(
+    prompt: str, cwd: str, timeout: int = 600,
+    images: list[str] | None = None,
+) -> str:
     """Run claude in print mode with full auto permissions."""
     claude_bin = find_cli("claude")
     if not claude_bin:
         return "[Error: claude CLI not found on PATH]"
 
+    # Claude Code has no --image flag; embed paths in prompt so it uses Read tool
+    full_prompt = prompt
+    if images:
+        image_refs = "\n".join(f"- {img}" for img in images)
+        full_prompt = (
+            f"{prompt}\n\n"
+            f"The following image files are attached. "
+            f"Read and analyze them as needed:\n{image_refs}"
+        )
+
     return run_cli(
         name="Claude",
-        args=[claude_bin, "-p", "--dangerously-skip-permissions", prompt],
+        args=[claude_bin, "-p", "--dangerously-skip-permissions", full_prompt],
         cwd=cwd,
         timeout=timeout,
         env_overrides={"CLAUDECODE": None},
     )
 
 
-def run_codex(prompt: str, cwd: str, timeout: int = 600) -> str:
+def run_codex(
+    prompt: str, cwd: str, timeout: int = 600,
+    images: list[str] | None = None,
+) -> str:
     """Run codex exec in full-auto mode."""
     codex_bin = find_cli("codex")
     if not codex_bin:
         return "[Error: codex CLI not found on PATH]"
 
+    args = [codex_bin, "exec", "--full-auto"]
+    for img in (images or []):
+        args.extend(["-i", img])
+    args.append(prompt)
+
     return run_cli(
         name="Codex",
-        args=[codex_bin, "exec", "--full-auto", prompt],
+        args=args,
         cwd=cwd,
         timeout=timeout,
     )
@@ -215,7 +236,7 @@ def print_banner() -> None:
 Both agents run in full-auto mode. Results are self-verified.
 Only verified, reviewed output is presented to you.
 
-Commands: /quit, /turns <n>, /verify <cmd>{RESET}
+Commands: /quit, /turns <n>, /verify <cmd>, /image <path>, /images, /clearimages{RESET}
 """)
 
 
@@ -238,6 +259,7 @@ def phase_claude_work(
     cwd: str,
     claude_ok: bool,
     history: list[tuple[str, str]],
+    images: list[str] | None = None,
 ) -> str:
     """Phase 1: Claude works on the task."""
     print_phase("Phase 1: Claude working on task")
@@ -250,7 +272,7 @@ def phase_claude_work(
         f"Conversation:\n{user_context}"
     )
 
-    response = run_claude(prompt, cwd) if claude_ok else "[Claude unavailable]"
+    response = run_claude(prompt, cwd, images=images) if claude_ok else "[Claude unavailable]"
     print_agent("Claude", MAGENTA, response)
     history.append(("claude", response))
     return response
@@ -302,6 +324,7 @@ def phase_codex_review(
     passed: bool,
     codex_ok: bool,
     history: list[tuple[str, str]],
+    images: list[str] | None = None,
 ) -> str:
     """Phase 3: Codex reviews Claude's work."""
     print_phase("Phase 3: Codex reviewing Claude's work")
@@ -319,7 +342,7 @@ def phase_codex_review(
         f"Conversation:\n{context}"
     )
 
-    review = run_codex(prompt, cwd) if codex_ok else "LGTM"
+    review = run_codex(prompt, cwd, images=images) if codex_ok else "LGTM"
     history.append(("codex", review))
     return review
 
@@ -400,10 +423,28 @@ def phase_debate(
 # ── Command handling ─────────────────────────────────────────────────────────
 
 
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg"}
+
+
+def resolve_image_path(path_str: str, cwd: str) -> str | None:
+    """Resolve an image path to absolute, return None if invalid."""
+    p = Path(path_str)
+    if not p.is_absolute():
+        p = (Path(cwd) / p).resolve()
+    if not p.exists():
+        print(f"  {RED}Image not found: {p}{RESET}")
+        return None
+    if p.suffix.lower() not in IMAGE_EXTENSIONS:
+        print(f"  {YELLOW}Warning: {p.name} may not be an image{RESET}")
+    return str(p)
+
+
 def handle_command(
     user_input: str,
     max_debate_rounds: int,
     verify_cmd: str | None,
+    images: list[str],
+    cwd: str,
 ) -> tuple[bool, int, str | None]:
     """Handle slash commands. Returns (should_continue, max_debate_rounds, verify_cmd).
 
@@ -424,10 +465,31 @@ def handle_command(
 
     if user_input.startswith("/verify "):
         verify_cmd = user_input[8:].strip() or None
-        if verify_cmd:
-            print(f"{DIM}Verify command set to: {verify_cmd}{RESET}")
+        print(f"{DIM}Verify command: {verify_cmd or 'cleared'}{RESET}")
+        return True, max_debate_rounds, verify_cmd
+
+    if user_input.startswith("/image "):
+        paths = user_input[7:].strip().split()
+        for raw in paths:
+            resolved = resolve_image_path(raw, cwd)
+            if resolved:
+                images.append(resolved)
+                print(f"  {DIM}Attached: {resolved}{RESET}")
+        if images:
+            print(f"  {DIM}Total images attached: {len(images)}{RESET}")
+        return True, max_debate_rounds, verify_cmd
+
+    if user_input == "/images":
+        if images:
+            for img in images:
+                print(f"  {DIM}{img}{RESET}")
         else:
-            print(f"{DIM}Verify command cleared.{RESET}")
+            print(f"  {DIM}No images attached. Use /image <path> to add.{RESET}")
+        return True, max_debate_rounds, verify_cmd
+
+    if user_input == "/clearimages":
+        images.clear()
+        print(f"  {DIM}All images cleared.{RESET}")
         return True, max_debate_rounds, verify_cmd
 
     return False, max_debate_rounds, verify_cmd
@@ -457,6 +519,7 @@ def main() -> None:
     verify_cmd = detect_verify_command(cwd)
     max_debate_rounds = MAX_DEBATE_ROUNDS
     conversation_history: list[tuple[str, str]] = []
+    images: list[str] = []
 
     if verify_cmd:
         print(f"  Verify cmd: {verify_cmd}")
@@ -476,7 +539,7 @@ def main() -> None:
 
         # Slash commands
         is_cmd, max_debate_rounds, verify_cmd = handle_command(
-            user_input, max_debate_rounds, verify_cmd,
+            user_input, max_debate_rounds, verify_cmd, images, cwd,
         )
         if is_cmd:
             continue
@@ -486,13 +549,13 @@ def main() -> None:
         context = build_context(conversation_history)
 
         # Phase 1: Claude works on the task
-        phase_claude_work(context, cwd, claude_ok, conversation_history)
+        phase_claude_work(context, cwd, claude_ok, conversation_history, images=images)
 
         # Phase 2: Self-verify (with fix loop)
         passed = phase_self_verify(cwd, verify_cmd, claude_ok, conversation_history)
 
         # Phase 3: Codex reviews
-        codex_review = phase_codex_review(cwd, passed, codex_ok, conversation_history)
+        codex_review = phase_codex_review(cwd, passed, codex_ok, conversation_history, images=images)
 
         # Phase 4: Debate if Codex found issues
         if is_lgtm(codex_review):
