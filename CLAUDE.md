@@ -10,6 +10,7 @@
    - You are confident the results satisfy the user
    - Claude and Codex have debated and BOTH agree they need to ask
    - Otherwise, figure it out yourself
+5. **Refactor regularly.** Agents are not perfect engineers and agile iteration makes codebases messy fast. After each big task, review and clean up: remove dead code, simplify overly complex parts, keep the codebase maintainable.
 
 ## Vision
 

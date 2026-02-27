@@ -1,27 +1,53 @@
 # claude-and-codex
 
-A TUI coding agent where Claude (Anthropic) and Codex (OpenAI) collaborate freely on coding tasks.
+An orchestrator where Claude Code and Codex CLI collaborate autonomously on coding tasks.
+
+## How It Works
+
+```
+User gives task -> Claude works (full auto) -> Self-verify (run tests)
+    -> Codex reviews -> Debate if needed -> Present verified result
+```
+
+Both agents run in full-auto mode. They never ask the user for clarification -- they figure it out themselves. Only verified, reviewed results are presented.
+
+## Requirements
+
+- `claude` CLI (Claude Code) on PATH
+- `codex` CLI on PATH
+- Python 3.11+
 
 ## Setup
 
 ```bash
-uv venv --python 3.12
-uv pip install -e ".[dev]"
+pip install -e .
 ```
 
 ## Usage
 
 ```bash
-# Set API keys (or use OAuth from CLI logins)
-export ANTHROPIC_API_KEY=sk-ant-...
-export OPENAI_API_KEY=sk-...
-
-# Run
+# Run the orchestrator (outside of any claude/codex session)
 python -m claude_and_codex
 ```
 
-## Authentication
+### Commands
 
-Supports two methods (tried in order):
-1. **OAuth**: Reuse tokens from `claude` CLI and `codex` CLI logins
-2. **API keys**: `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` environment variables
+- `/quit` -- exit
+- `/turns <n>` -- set max debate rounds (default: 3)
+- `/verify <cmd>` -- set custom verification command
+
+### Auto-detected verification
+
+The orchestrator auto-detects your project's test runner:
+- Python: `python -m pytest -q`
+- Node: `npm test`
+- Rust: `cargo test`
+- Go: `go test ./...`
+
+## TUI Prototype
+
+The original TUI prototype (Textual-based) is still available:
+
+```bash
+python -m claude_and_codex --tui
+```
