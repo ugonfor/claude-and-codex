@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import time
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -34,6 +35,16 @@ CLI_TIMEOUT = 600       # 10 min per agent call
 VERIFY_TIMEOUT = 120    # 2 min for test runs
 PROMPT_MAX_CHARS = 50_000
 CODEX_ARG_LIMIT = 7500
+
+# ANSI escape codes for terminal output
+BOLD = "\033[1m"
+DIM = "\033[2m"
+RED = "\033[31m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+MAGENTA = "\033[35m"
+WHITE = "\033[37m"
+RESET = "\033[0m"
 
 COLLAB_SYSTEM = """\
 You are {name}, collaborating with {partner} on a coding task.
@@ -112,6 +123,10 @@ def run_cli(
     env_overrides: dict[str, str | None] | None = None,
     stdin_text: str | None = None,
 ) -> str:
+    """Run a CLI tool, streaming its output live to the terminal.
+
+    Output is both displayed in real-time and captured for history.
+    """
     env = os.environ.copy()
     for key, value in (env_overrides or {}).items():
         if value is None:
@@ -120,16 +135,42 @@ def run_cli(
             env[key] = value
 
     try:
-        result = subprocess.run(
-            args, input=stdin_text,
-            capture_output=True, text=True, timeout=timeout,
-            cwd=cwd, env=env, encoding="utf-8", errors="replace",
+        proc = subprocess.Popen(
+            args,
+            stdin=subprocess.PIPE if stdin_text else None,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=cwd, env=env,
+            encoding="utf-8", errors="replace",
         )
-        output = (result.stdout or "").strip()
-        if result.returncode != 0 and result.stderr:
-            output += f"\n[stderr: {result.stderr.strip()[:500]}]"
+
+        # Write stdin and close
+        if stdin_text and proc.stdin:
+            proc.stdin.write(stdin_text)
+            proc.stdin.close()
+
+        # Stream stdout live while capturing
+        captured_lines: list[str] = []
+        deadline = time.time() + timeout
+
+        for line in iter(proc.stdout.readline, ""):
+            if time.time() > deadline:
+                proc.kill()
+                return f"[Error: {name} timed out after {timeout}s]"
+            sys.stdout.write(f"  {line}")
+            sys.stdout.flush()
+            captured_lines.append(line)
+
+        proc.wait()
+        output = "".join(captured_lines).strip()
+
+        stderr = proc.stderr.read() if proc.stderr else ""
+        if proc.returncode != 0 and stderr.strip():
+            output += f"\n[stderr: {stderr.strip()[:500]}]"
+
         return output or f"[No output from {name}]"
     except subprocess.TimeoutExpired:
+        proc.kill()
         return f"[Error: {name} timed out after {timeout}s]"
     except Exception as e:
         return f"[Error running {name}: {type(e).__name__}: {e}]"
@@ -310,6 +351,32 @@ def resolve_image_path(path_str: str, cwd: str) -> str | None:
 # ── Core collaboration loop ─────────────────────────────────────────────────
 
 
+def _run_agent_thread(
+    role: str, name: str, partner: str,
+    runner, prompt: str, cwd: str,
+    images: list[str] | None,
+    results: dict,
+    print_lock: threading.Lock,
+) -> None:
+    """Thread target: run one agent and store result."""
+    style = AGENT_STYLES.get(name, "white")
+    with print_lock:
+        console.print(f"  [{style}]{name} working...[/{style}]")
+
+    start = time.time()
+    response = runner(prompt, cwd, images=images)
+    duration = elapsed_str(start)
+
+    with print_lock:
+        if not is_error(response):
+            console.print()
+            print_agent(name, style, response, duration)
+        else:
+            console.print(f"  [yellow]{name} errored: {response[:200]}[/yellow]")
+
+    results[role] = response
+
+
 def collaborate(
     cwd: str,
     claude_ok: bool,
@@ -319,86 +386,84 @@ def collaborate(
     verify_cmd: str | None,
     max_turns: int,
 ) -> None:
-    """Free-form collaboration loop.
+    """Free-form parallel collaboration loop.
 
-    Both agents take turns. Each sees the full conversation and decides
-    what to do. Loop ends when both signal DONE/PASS, or max turns reached.
+    Both agents work simultaneously on each round. Each sees the full
+    conversation and decides what to do. Loop ends when both signal
+    DONE/PASS, or max rounds reached.
     """
     agents = []
     if claude_ok:
-        agents.append(("claude", "Claude", "Codex", MAGENTA, run_claude))
+        agents.append(("claude", "Claude", "Codex", run_claude))
     if codex_ok:
-        agents.append(("codex", "Codex", "Claude", GREEN, run_codex))
+        agents.append(("codex", "Codex", "Claude", run_codex))
 
     if not agents:
         console.print("[red]No agents available.[/red]")
         return
 
-    consecutive_done = 0
-    turn = 0
-    last_had_changes = False
+    round_num = 0
+    max_rounds = max_turns // max(len(agents), 1)
 
-    while turn < max_turns:
-        # Alternate agents
-        role, name, partner, color, runner = agents[turn % len(agents)]
-        turn += 1
+    while round_num < max_rounds:
+        round_num += 1
+        console.rule(f"[dim]Round {round_num}[/dim]", style="dim")
 
         context = build_context(history)
-        system = COLLAB_SYSTEM.format(name=name, partner=partner)
 
-        prompt = f"{system}\nConversation so far:\n{context}"
-
-        # If verification failed last round, tell the agent
-        if last_had_changes:
-            console.print(f"  [dim]Running verification...[/dim]")
+        # Check verification from previous round
+        verify_suffix = ""
+        if round_num > 1:
+            console.print("  [dim]Running verification...[/dim]")
             passed, verify_output = run_verify(cwd, verify_cmd)
             if not passed:
-                prompt += (
+                verify_suffix = (
                     f"\n\n[System]: Verification FAILED after recent changes:\n"
                     f"```\n{verify_output}\n```\n"
                     f"Fix these errors."
                 )
                 history.append(("system", f"Verification failed:\n{verify_output}"))
-                console.print(f"  [red]Verification failed[/red]")
+                console.print("  [red]Verification failed[/red]")
             else:
-                prompt += "\n\n[System]: Verification passed after recent changes."
+                verify_suffix = "\n\n[System]: Verification passed after recent changes."
                 history.append(("system", "Verification passed."))
-                console.print(f"  [green]Verification passed[/green]")
-            last_had_changes = False
+                console.print("  [green]Verification passed[/green]")
+            context = build_context(history)
 
-        style = AGENT_STYLES.get(name, "white")
-        console.print(f"\n[dim]\\[{timestamp()}][/dim] [{style} bold]{name}[/{style} bold][dim]'s turn (#{turn})...[/dim]")
-        start = time.time()
+        # Launch all agents in parallel
+        print_lock = threading.Lock()
+        results: dict[str, str] = {}
+        threads: list[threading.Thread] = []
 
-        # Only pass images on first turn for each agent
-        img = images if turn <= len(agents) else None
-        response = runner(prompt, cwd, images=img)
-        duration = elapsed_str(start)
+        for role, name, partner, runner in agents:
+            system = COLLAB_SYSTEM.format(name=name, partner=partner)
+            prompt = f"{system}\nConversation so far:\n{context}{verify_suffix}"
 
-        if is_error(response):
-            console.print(f"  [yellow]{name} errored: {response[:200]}[/yellow]")
+            img = images if round_num == 1 else None
+            t = threading.Thread(
+                target=_run_agent_thread,
+                args=(role, name, partner, runner, prompt, cwd, img, results, print_lock),
+            )
+            threads.append(t)
+            t.start()
+
+        for t in threads:
+            t.join()
+
+        # Record results in history
+        all_done = True
+        for role, name, _, _ in agents:
+            response = results.get(role, "")
             history.append((role, response))
-            consecutive_done = 0
-            continue
+            if not is_done_or_pass(response):
+                all_done = False
 
-        print_agent(name, color, response, duration)
-        history.append((role, response))
-
-        # Check if agent signals completion
-        if is_done_or_pass(response):
-            consecutive_done += 1
-            if consecutive_done >= len(agents):
-                console.print(f"\n[bold cyan]All agents agree: task complete.[/bold cyan]")
-                break
-        else:
-            consecutive_done = 0
-            # Heuristic: if response mentions file operations, mark as having changes
-            lower = response.lower()
-            if any(kw in lower for kw in ["wrote", "created", "modified", "updated", "fixed", "changed", "edited"]):
-                last_had_changes = True
+        if all_done:
+            console.print(f"\n[bold cyan]All agents agree: task complete.[/bold cyan]")
+            break
 
     else:
-        console.print(f"\n[yellow]Reached max turns ({max_turns}). Stopping.[/yellow]")
+        console.print(f"\n[yellow]Reached max rounds ({max_rounds}). Stopping.[/yellow]")
 
     # Final verification
     console.print(f"\n[dim]Running final verification...[/dim]")
@@ -495,8 +560,7 @@ def handle_command(
 
 def main() -> None:
     if os.environ.get("CLAUDECODE"):
-        console.print("[yellow]Warning: Running inside a Claude Code session.")
-        console.print("claude -p may not work. Run this directly in your terminal.[/yellow]")
+        console.print("[yellow]Warning: Running inside a Claude Code session.\nclaude -p may not work. Run this directly in your terminal.[/yellow]")
 
     claude_ok = find_cli("claude") is not None
     codex_ok = find_cli("codex") is not None
