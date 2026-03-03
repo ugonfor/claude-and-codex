@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "claude-and-codex"
-version = "0.6.0"
+version = "0.7.0"
 description = "Claude Code + Codex CLI orchestrator for autonomous collaboration"
 readme = "README.md"
 requires-python = ">=3.9"
