@@ -1,0 +1,17 @@
+{
+    "id": "bugfix_off_by_one",
+    "name": "Fix Off-by-One in Pagination",
+    "category": "bugfix",
+    "description": "The file `paginator.py` has an off-by-one bug in the `get_page()` function. The existing tests in `test_paginator.py` are failing. Find and fix the bug so all tests pass. Do NOT modify the test file.",
+    "setup_files": {
+        "paginator.py": "\"\"\"Simple pagination utility.\"\"\"\n\n\ndef get_page(items: list, page: int, per_page: int = 10) -> list:\n    \"\"\"Return items for the given page (1-indexed).\n\n    Args:\n        items: The full list of items.\n        page: Page number (1-indexed).\n        per_page: Number of items per page.\n\n    Returns:\n        A list of items for the requested page.\n    \"\"\"\n    start = page * per_page  # BUG: should be (page - 1) * per_page\n    end = start + per_page\n    return items[start:end]\n\n\ndef total_pages(items: list, per_page: int = 10) -> int:\n    \"\"\"Return the total number of pages.\"\"\"\n    return (len(items) + per_page - 1) // per_page\n",
+        "test_paginator.py": "\"\"\"Tests for paginator module.\"\"\"\nimport pytest\nfrom paginator import get_page, total_pages\n\n\ndef test_first_page():\n    items = list(range(30))\n    assert get_page(items, 1, 10) == list(range(10))\n\n\ndef test_second_page():\n    items = list(range(30))\n    assert get_page(items, 2, 10) == list(range(10, 20))\n\n\ndef test_third_page():\n    items = list(range(30))\n    assert get_page(items, 3, 10) == list(range(20, 30))\n\n\ndef test_last_partial_page():\n    items = list(range(25))\n    assert get_page(items, 3, 10) == list(range(20, 25))\n\n\ndef test_empty_page():\n    items = list(range(10))\n    assert get_page(items, 2, 10) == []\n\n\ndef test_custom_per_page():\n    items = list(range(15))\n    assert get_page(items, 1, 5) == list(range(5))\n    assert get_page(items, 3, 5) == list(range(10, 15))\n\n\ndef test_total_pages():\n    assert total_pages(list(range(30)), 10) == 3\n    assert total_pages(list(range(25)), 10) == 3\n    assert total_pages(list(range(10)), 10) == 1\n    assert total_pages([], 10) == 0\n"
+    },
+    "verify_cmd": "python -m pytest test_paginator.py -q 2>&1",
+    "expected_outcomes": [
+        "All 7 tests pass",
+        "Only paginator.py is modified, not test_paginator.py",
+        "The fix changes page * per_page to (page - 1) * per_page"
+    ],
+    "timeout_seconds": 180
+}

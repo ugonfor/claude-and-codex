@@ -24,6 +24,9 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
 ]
+experiment = [
+    "matplotlib>=3.8",
+]
 
 [project.scripts]
 claude-and-codex = "claude_and_codex.__main__:main"

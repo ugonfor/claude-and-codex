@@ -1,0 +1,18 @@
+{
+    "id": "testwrite_utils",
+    "name": "Write Tests for String Utility Module",
+    "category": "testwrite",
+    "description": "The file `string_utils.py` has four utility functions but no tests. Write a comprehensive test file `test_string_utils.py` using pytest. Cover: normal cases, edge cases (empty strings, special characters, unicode), and error cases. Aim for at least 12 test functions with descriptive names. All tests must pass.",
+    "setup_files": {
+        "string_utils.py": "\"\"\"String utility functions.\"\"\"\n\n\ndef truncate(text: str, max_length: int, suffix: str = \"...\") -> str:\n    \"\"\"Truncate text to max_length, appending suffix if truncated.\"\"\"\n    if len(text) <= max_length:\n        return text\n    if max_length <= len(suffix):\n        return suffix[:max_length]\n    return text[:max_length - len(suffix)] + suffix\n\n\ndef slugify(text: str) -> str:\n    \"\"\"Convert text to a URL-friendly slug.\"\"\"\n    slug = text.lower().strip()\n    result = []\n    for ch in slug:\n        if ch.isalnum():\n            result.append(ch)\n        elif ch in (\" \", \"-\", \"_\"):\n            if result and result[-1] != \"-\":\n                result.append(\"-\")\n    return \"-\".join(part for part in \"\".join(result).split(\"-\") if part)\n\n\ndef count_words(text: str) -> int:\n    \"\"\"Count the number of words in text.\"\"\"\n    return len(text.split()) if text.strip() else 0\n\n\ndef wrap_lines(text: str, width: int = 80) -> str:\n    \"\"\"Wrap text to the specified width.\"\"\"\n    words = text.split()\n    if not words:\n        return \"\"\n    lines = []\n    current_line = words[0]\n    for word in words[1:]:\n        if len(current_line) + 1 + len(word) <= width:\n            current_line += \" \" + word\n        else:\n            lines.append(current_line)\n            current_line = word\n    lines.append(current_line)\n    return \"\\n\".join(lines)\n"
+    },
+    "verify_cmd": "python -m pytest test_string_utils.py -q 2>&1",
+    "expected_outcomes": [
+        "test_string_utils.py exists with >= 12 test functions",
+        "Tests cover truncate, slugify, count_words, wrap_lines",
+        "Tests include edge cases (empty strings, special chars, unicode)",
+        "All tests pass",
+        "string_utils.py is NOT modified"
+    ],
+    "timeout_seconds": 300
+}
