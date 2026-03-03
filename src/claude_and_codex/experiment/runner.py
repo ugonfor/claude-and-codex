@@ -62,9 +62,8 @@ class ExperimentRunner:
         self, mode: ExperimentMode, benchmark: Benchmark, codex_ok: bool = True,
     ) -> ExperimentRunResult:
         """Run one specific combination."""
-        # Create isolated sandbox
-        sandbox_base = self.plan.results_dir / "sandboxes" if self.plan.preserve_sandboxes else None
-        sandbox = create_sandbox(benchmark, mode.value, sandbox_base)
+        # Create isolated sandbox — always in tempdir first
+        sandbox = create_sandbox(benchmark, mode.value)
 
         try:
             result = run_experiment_task(
@@ -76,11 +75,12 @@ class ExperimentRunner:
             )
             result.sandbox_path = str(sandbox.root)
 
-            # Preserve sandbox if requested
+            # Preserve sandbox if requested (copy from temp to results dir)
             if self.plan.preserve_sandboxes:
-                dest = self.plan.results_dir / "sandboxes"
-                dest.mkdir(parents=True, exist_ok=True)
-                preserve_sandbox(sandbox, dest)
+                dest_dir = self.plan.results_dir / "sandboxes"
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                preserved = preserve_sandbox(sandbox, dest_dir)
+                result.sandbox_path = str(preserved)
 
             return result
         except Exception as e:
@@ -95,8 +95,7 @@ class ExperimentRunner:
                 sandbox_path=str(sandbox.root),
             )
         finally:
-            if not self.plan.preserve_sandboxes:
-                cleanup_sandbox(sandbox)
+            cleanup_sandbox(sandbox)
 
     def save_results(self, output_dir: Path | None = None) -> Path:
         """Save all results as JSON."""
