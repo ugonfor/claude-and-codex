@@ -1,0 +1,18 @@
+{
+    "id": "refactor_extract_fn",
+    "name": "Refactor Duplicated Logic into Functions",
+    "category": "refactor",
+    "description": "The file `report_generator.py` has duplicated formatting logic across three functions. Refactor by extracting a shared helper function `format_section(title, items, bullet='- ')` that the three report functions should use. Ensure all existing tests still pass after refactoring. Do NOT modify the test file.",
+    "setup_files": {
+        "report_generator.py": "\"\"\"Report generator with duplicated formatting logic.\"\"\"\n\n\ndef generate_summary_report(title: str, findings: list[str]) -> str:\n    \"\"\"Generate a summary report.\"\"\"\n    lines = []\n    lines.append(f\"=== {title.upper()} ===\")\n    lines.append(\"\")\n    for item in findings:\n        lines.append(f\"- {item}\")\n    lines.append(\"\")\n    lines.append(f\"Total: {len(findings)} findings\")\n    return \"\\n\".join(lines)\n\n\ndef generate_action_items(title: str, actions: list[str]) -> str:\n    \"\"\"Generate an action items report.\"\"\"\n    lines = []\n    lines.append(f\"=== {title.upper()} ===\")\n    lines.append(\"\")\n    for item in actions:\n        lines.append(f\"- {item}\")\n    lines.append(\"\")\n    lines.append(f\"Total: {len(actions)} actions\")\n    return \"\\n\".join(lines)\n\n\ndef generate_risk_report(title: str, risks: list[str]) -> str:\n    \"\"\"Generate a risk report.\"\"\"\n    lines = []\n    lines.append(f\"=== {title.upper()} ===\")\n    lines.append(\"\")\n    for item in risks:\n        lines.append(f\"- {item}\")\n    lines.append(\"\")\n    lines.append(f\"Total: {len(risks)} risks\")\n    return \"\\n\".join(lines)\n",
+        "test_report_generator.py": "\"\"\"Tests for report generator.\"\"\"\nfrom report_generator import (\n    generate_summary_report,\n    generate_action_items,\n    generate_risk_report,\n)\n\n\ndef test_summary_report():\n    result = generate_summary_report(\"Audit\", [\"item1\", \"item2\"])\n    assert \"=== AUDIT ===\" in result\n    assert \"- item1\" in result\n    assert \"- item2\" in result\n    assert \"Total: 2 findings\" in result\n\n\ndef test_action_items():\n    result = generate_action_items(\"Sprint\", [\"fix bug\", \"add test\", \"deploy\"])\n    assert \"=== SPRINT ===\" in result\n    assert \"- fix bug\" in result\n    assert \"Total: 3 actions\" in result\n\n\ndef test_risk_report():\n    result = generate_risk_report(\"Security\", [\"sql injection\"])\n    assert \"=== SECURITY ===\" in result\n    assert \"- sql injection\" in result\n    assert \"Total: 1 risks\" in result\n\n\ndef test_empty_findings():\n    result = generate_summary_report(\"Empty\", [])\n    assert \"Total: 0 findings\" in result\n\n\ndef test_empty_actions():\n    result = generate_action_items(\"Nothing\", [])\n    assert \"Total: 0 actions\" in result\n\n\ndef test_empty_risks():\n    result = generate_risk_report(\"Clean\", [])\n    assert \"Total: 0 risks\" in result\n"
+    },
+    "verify_cmd": "python -m pytest test_report_generator.py -q 2>&1",
+    "expected_outcomes": [
+        "A format_section helper function is extracted",
+        "All three report functions use the shared helper",
+        "All 6 tests pass",
+        "test_report_generator.py is NOT modified"
+    ],
+    "timeout_seconds": 300
+}

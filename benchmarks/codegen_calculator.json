@@ -1,0 +1,15 @@
+{
+    "id": "codegen_calculator",
+    "name": "Build a Calculator Module",
+    "category": "codegen",
+    "description": "Create a Python module `calculator.py` with functions: add(a, b), subtract(a, b), multiply(a, b), divide(a, b). Division by zero should raise ValueError with a clear message. Also create `test_calculator.py` with pytest tests covering: normal operations for all four functions, division by zero, negative numbers, and floating point inputs. All tests must pass. Use only the standard library plus pytest.",
+    "setup_files": {},
+    "verify_cmd": "python -m pytest test_calculator.py -q 2>&1",
+    "expected_outcomes": [
+        "calculator.py exists with add, subtract, multiply, divide functions",
+        "test_calculator.py exists with >= 8 tests",
+        "All tests pass",
+        "Division by zero raises ValueError"
+    ],
+    "timeout_seconds": 300
+}
