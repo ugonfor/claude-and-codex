@@ -168,7 +168,9 @@ def run_claude_logged(name: str, p: str, cwd: str,
 
     env = os.environ.copy()
     env.pop("CLAUDECODE", None)
-    cmd = [claude_bin, "-p", "--dangerously-skip-permissions"]
+    # Use stream-json for full structured logging (tool calls, messages, usage)
+    cmd = [claude_bin, "-p", "--dangerously-skip-permissions",
+           "--output-format", "stream-json", "--verbose"]
     logger.agent_start(name, cmd, p)
 
     start = time.time()
@@ -190,7 +192,16 @@ def run_claude_logged(name: str, p: str, cwd: str,
                 logger.note(f"{name} timed out")
                 break
             output_lines.append(line)
-            logger.agent_output(name, line)
+            # Parse JSON events for richer logging
+            stripped = line.strip()
+            if stripped.startswith("{"):
+                try:
+                    event = json.loads(stripped)
+                    logger.agent_output(name, stripped)
+                except json.JSONDecodeError:
+                    logger.agent_output(name, line)
+            else:
+                logger.agent_output(name, line)
         proc.wait(timeout=5)
         elapsed = time.time() - start
         logger.agent_end(name, proc.returncode, elapsed)
