@@ -1,126 +1,92 @@
-"""Pong Game Engine — built by Claude"""
+"""Conway's Game of Life — core engine.
+
+Built by Claude as part of a Claude + Codex collaboration.
+"""
 
 import random
 
-WIDTH = 60
-HEIGHT = 20
-PADDLE_HEIGHT = 4
-WIN_SCORE = 5
 
+class GameOfLife:
+    """Core Game of Life simulation."""
 
-class PongEngine:
-    def __init__(self):
-        self.width = WIDTH
-        self.height = HEIGHT
-        self.paddle_height = PADDLE_HEIGHT
-        self.reset()
+    def __init__(self, width: int, height: int):
+        self.width = width
+        self.height = height
+        self.grid: list[list[bool]] = [
+            [False] * width for _ in range(height)
+        ]
+        self.generation = 0
 
-    def reset(self):
-        """Reset the entire game."""
-        self.score1 = 0
-        self.score2 = 0
-        self._reset_ball()
-        self.paddle1_y = self.height // 2 - self.paddle_height // 2
-        self.paddle2_y = self.height // 2 - self.paddle_height // 2
-        self.game_over = False
-        self.winner = None
+    def set_alive(self, row: int, col: int) -> None:
+        """Set a cell to alive."""
+        if 0 <= row < self.height and 0 <= col < self.width:
+            self.grid[row][col] = True
 
-    def _reset_ball(self):
-        """Reset ball to center with random direction."""
-        self.ball_x = self.width // 2
-        self.ball_y = self.height // 2
-        self.ball_dx = random.choice([-1, 1])
-        self.ball_dy = random.choice([-1, 0, 1])
+    def set_dead(self, row: int, col: int) -> None:
+        """Set a cell to dead."""
+        if 0 <= row < self.height and 0 <= col < self.width:
+            self.grid[row][col] = False
 
-    def move_paddle(self, player: int, direction: int):
-        """Move a paddle up (-1) or down (+1).
-        player: 1 = left, 2 = right
-        """
-        if player == 1:
-            self.paddle1_y = max(0, min(self.height - self.paddle_height,
-                                        self.paddle1_y + direction))
-        elif player == 2:
-            self.paddle2_y = max(0, min(self.height - self.paddle_height,
-                                        self.paddle2_y + direction))
+    def is_alive(self, row: int, col: int) -> bool:
+        """Check if a cell is alive (wraps around edges)."""
+        r = row % self.height
+        c = col % self.width
+        return self.grid[r][c]
 
-    def tick(self):
-        """Advance one game tick. Returns True if game is still running."""
-        if self.game_over:
-            return False
+    def count_neighbors(self, row: int, col: int) -> int:
+        """Count live neighbors (8-connected, toroidal wrap)."""
+        count = 0
+        for dr in (-1, 0, 1):
+            for dc in (-1, 0, 1):
+                if dr == 0 and dc == 0:
+                    continue
+                if self.is_alive(row + dr, col + dc):
+                    count += 1
+        return count
 
-        # Move ball
-        new_x = self.ball_x + self.ball_dx
-        new_y = self.ball_y + self.ball_dy
-
-        # Wall bounce (top/bottom)
-        if new_y < 0:
-            new_y = -new_y
-            self.ball_dy = -self.ball_dy
-        elif new_y >= self.height:
-            new_y = 2 * (self.height - 1) - new_y
-            self.ball_dy = -self.ball_dy
-
-        # Left paddle collision
-        if new_x <= 1:
-            if self.paddle1_y <= new_y < self.paddle1_y + self.paddle_height:
-                new_x = 2 - new_x
-                self.ball_dx = abs(self.ball_dx)  # go right
-                # Add spin based on where ball hits paddle
-                hit_pos = (new_y - self.paddle1_y) / self.paddle_height
-                if hit_pos < 0.33:
-                    self.ball_dy = -1
-                elif hit_pos > 0.66:
-                    self.ball_dy = 1
+    def step(self) -> None:
+        """Advance one generation using standard B3/S23 rules."""
+        new_grid = [[False] * self.width for _ in range(self.height)]
+        for r in range(self.height):
+            for c in range(self.width):
+                n = self.count_neighbors(r, c)
+                if self.grid[r][c]:
+                    # Alive: survives with 2 or 3 neighbors
+                    new_grid[r][c] = n in (2, 3)
                 else:
-                    self.ball_dy = 0
-            elif new_x < 0:
-                # Player 2 scores
-                self.score2 += 1
-                if self.score2 >= WIN_SCORE:
-                    self.game_over = True
-                    self.winner = 2
-                self._reset_ball()
-                return not self.game_over
+                    # Dead: born with exactly 3 neighbors
+                    new_grid[r][c] = n == 3
+        self.grid = new_grid
+        self.generation += 1
 
-        # Right paddle collision
-        if new_x >= self.width - 2:
-            if self.paddle2_y <= new_y < self.paddle2_y + self.paddle_height:
-                new_x = 2 * (self.width - 2) - new_x
-                self.ball_dx = -abs(self.ball_dx)  # go left
-                hit_pos = (new_y - self.paddle2_y) / self.paddle_height
-                if hit_pos < 0.33:
-                    self.ball_dy = -1
-                elif hit_pos > 0.66:
-                    self.ball_dy = 1
-                else:
-                    self.ball_dy = 0
-            elif new_x >= self.width:
-                # Player 1 scores
-                self.score1 += 1
-                if self.score1 >= WIN_SCORE:
-                    self.game_over = True
-                    self.winner = 1
-                self._reset_ball()
-                return not self.game_over
+    def randomize(self, density: float = 0.3) -> None:
+        """Fill grid randomly. density = probability a cell is alive."""
+        for r in range(self.height):
+            for c in range(self.width):
+                self.grid[r][c] = random.random() < density
+        self.generation = 0
 
-        self.ball_x = max(0, min(self.width - 1, new_x))
-        self.ball_y = max(0, min(self.height - 1, new_y))
-        return True
+    def clear(self) -> None:
+        """Kill all cells."""
+        self.grid = [[False] * self.width for _ in range(self.height)]
+        self.generation = 0
 
-    def get_state(self) -> dict:
-        """Return current game state as a dict."""
-        return {
-            "ball_x": self.ball_x,
-            "ball_y": self.ball_y,
-            "ball_dx": self.ball_dx,
-            "ball_dy": self.ball_dy,
-            "paddle1_y": self.paddle1_y,
-            "paddle2_y": self.paddle2_y,
-            "score1": self.score1,
-            "score2": self.score2,
-            "width": self.width,
-            "height": self.height,
-            "paddle_height": self.paddle_height,
-            "game_over": self.game_over,
-            "winner": self.winner,
-        }
+    def population(self) -> int:
+        """Count total living cells."""
+        return sum(cell for row in self.grid for cell in row)
+
+    def add_pattern(self, pattern: list[tuple[int, int]], offset_r: int = 0, offset_c: int = 0) -> None:
+        """Place a pattern on the grid at an offset."""
+        for r, c in pattern:
+            self.set_alive(r + offset_r, c + offset_c)
+
+
+# --- Common patterns ---
+
+GLIDER = [(0, 1), (1, 2), (2, 0), (2, 1), (2, 2)]
+
+BLINKER = [(0, 0), (0, 1), (0, 2)]
+
+BLOCK = [(0, 0), (0, 1), (1, 0), (1, 1)]
+
+LWSS = [(0, 1), (0, 4), (1, 0), (2, 0), (2, 4), (3, 0), (3, 1), (3, 2), (3, 3)]

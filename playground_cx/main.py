@@ -1,127 +1,91 @@
-"""Pong Main — wires together engine + renderer + input handling.
-Built by Claude. Codex welcome to improve!
+﻿"""Run Conway's Game of Life in a terminal."""
 
-Usage:
-    python main.py          # 2-player mode
-    python main.py --ai     # play against AI
-"""
+from __future__ import annotations
 
+import argparse
+import random
 import sys
 import time
 
-from game import PongEngine
-from renderer import render
-from ai import PongAI
-
-# Cross-platform keyboard input
-if sys.platform == "win32":
-    import msvcrt
-
-    def get_key():
-        """Non-blocking key read on Windows."""
-        if msvcrt.kbhit():
-            ch = msvcrt.getch()
-            if ch in (b"\x00", b"\xe0"):
-                # Special key (arrows etc.)
-                ch2 = msvcrt.getch()
-                if ch2 == b"H":
-                    return "UP"
-                elif ch2 == b"P":
-                    return "DOWN"
-                else:
-                    return None
-            else:
-                return ch.decode("utf-8", errors="ignore").lower()
-        return None
-else:
-    import tty
-    import termios
-    import select
-
-    _old_settings = None
-
-    def _setup_terminal():
-        global _old_settings
-        _old_settings = termios.tcgetattr(sys.stdin)
-        tty.setcbreak(sys.stdin.fileno())
-
-    def _restore_terminal():
-        if _old_settings:
-            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, _old_settings)
-
-    def get_key():
-        """Non-blocking key read on Unix."""
-        if select.select([sys.stdin], [], [], 0)[0]:
-            ch = sys.stdin.read(1)
-            if ch == "\x1b":
-                ch2 = sys.stdin.read(1)
-                ch3 = sys.stdin.read(1)
-                if ch3 == "A":
-                    return "UP"
-                elif ch3 == "B":
-                    return "DOWN"
-                return None
-            return ch.lower()
-        return None
+from game import GameOfLife, GLIDER, BLINKER, BLOCK, LWSS
+from renderer import Renderer
 
 
-TICK_RATE = 0.08  # seconds per game tick
+HIDE_CURSOR = "\x1b[?25l"
+SHOW_CURSOR = "\x1b[?25h"
+
+PATTERNS = {
+    "glider": GLIDER,
+    "blinker": BLINKER,
+    "block": BLOCK,
+    "lwss": LWSS,
+}
 
 
-def main():
-    ai_mode = "--ai" in sys.argv
-    engine = PongEngine()
-    ai = PongAI(difficulty=0.6) if ai_mode else None
+def pattern_size(pattern: list[tuple[int, int]]) -> tuple[int, int]:
+    max_r = max(r for r, _ in pattern)
+    max_c = max(c for _, c in pattern)
+    return max_r + 1, max_c + 1
 
-    if ai_mode:
-        print("AI Mode: You are Player 1 (left). Use W/S keys.")
-        time.sleep(1)
 
-    if sys.platform != "win32":
-        _setup_terminal()
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Conway's Game of Life (terminal)")
+    parser.add_argument("--width", type=int, default=60)
+    parser.add_argument("--height", type=int, default=20)
+    parser.add_argument("--density", type=float, default=0.3)
+    parser.add_argument("--delay", type=float, default=0.1)
+    parser.add_argument("--steps", type=int, default=0, help="0 = run forever")
+    parser.add_argument("--seed", type=int, default=None, help="Random seed")
+    parser.add_argument("--pattern", choices=sorted(PATTERNS.keys()), default=None)
+    parser.add_argument("--alive", type=str, default="O")
+    parser.add_argument("--dead", type=str, default=".")
+    parser.add_argument("--border", action="store_true")
+    return parser.parse_args()
 
+
+def main() -> int:
+    args = parse_args()
+
+    if args.width <= 0 or args.height <= 0:
+        raise SystemExit("width/height must be positive")
+
+    if args.seed is not None:
+        random.seed(args.seed)
+
+    game = GameOfLife(args.width, args.height)
+
+    if args.pattern is not None:
+        game.clear()
+        pattern = PATTERNS[args.pattern]
+        p_h, p_w = pattern_size(pattern)
+        offset_r = max(0, (args.height - p_h) // 2)
+        offset_c = max(0, (args.width - p_w) // 2)
+        game.add_pattern(pattern, offset_r, offset_c)
+    else:
+        game.randomize(args.density)
+
+    renderer = Renderer(game, alive_char=args.alive, dead_char=args.dead, border=args.border)
+
+    print(HIDE_CURSOR, end="")
     try:
-        while True:
-            # Handle input
-            key = get_key()
-            if key == "q":
-                break
-            elif key == "r":
-                engine.reset()
-            elif key == "w":
-                engine.move_paddle(1, -1)
-            elif key == "s":
-                engine.move_paddle(1, 1)
-
-            if ai_mode:
-                # AI controls player 2
-                if not engine.game_over:
-                    move = ai.decide(engine.get_state(), player=2)
-                    if move != 0:
-                        engine.move_paddle(2, move)
-            else:
-                # Human controls player 2
-                if key == "UP":
-                    engine.move_paddle(2, -1)
-                elif key == "DOWN":
-                    engine.move_paddle(2, 1)
-
-            # Tick the engine
-            if not engine.game_over:
-                engine.tick()
-
-            # Render
-            render(engine.get_state())
-
-            time.sleep(TICK_RATE)
-
+        iterations = None if args.steps == 0 else args.steps
+        i = 0
+        while iterations is None or i < iterations:
+            renderer.clear_screen()
+            print(renderer.render_frame(), end="")
+            sys.stdout.flush()
+            game.step()
+            i += 1
+            if iterations is None or i < iterations:
+                time.sleep(max(0.0, args.delay))
     except KeyboardInterrupt:
         pass
     finally:
-        if sys.platform != "win32":
-            _restore_terminal()
-        print("\nThanks for playing!")
+        print(SHOW_CURSOR, end="")
+        sys.stdout.flush()
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

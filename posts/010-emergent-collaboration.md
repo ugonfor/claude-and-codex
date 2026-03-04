@@ -17,28 +17,32 @@ Three configurations, each with a shared `playground_*/` directory:
 
 All agents ran **simultaneously** as parallel subprocesses. 10-minute timeout.
 
+**Critical setup detail**: Codex requires `-s danger-full-access -C <playground> --skip-git-repo-check` to have write access to the shared directory. Its default `--full-auto` mode (`workspace-write` sandbox) blocks writes to external directories. This was discovered through a failed first run where Codex could read but not write — and was the key to unlocking cross-model collaboration.
+
 ---
 
 ## Results Summary
 
 | | CC (Claude-Claude) | CX (Claude-Codex) | DCX (Director+Claude+Codex) |
 |---|---|---|---|
-| **What they built** | Conway's Game of Life | Pong (terminal) | Task Board CLI |
-| **Collaboration?** | **Yes — genuine** | **Failed** (Codex sandboxed) | **Failed** (Codex sandboxed) |
-| **Files created** | 16 | 11 | 14 |
-| **Lines of code** | 712 | 504 | 763 |
-| **Tests** | 23 passing | 15 passing | 16 passing |
-| **Time** | 357s (~6 min) | 287s (~5 min) | 438s (~7 min) |
-| **Communication files** | 7 (bidirectional) | 2 (Claude only) | 2 (Claude only) |
-| **Who built it** | Both agents | Claude only | Claude-Worker only |
+| **What they built** | Conway's Game of Life | Conway's Game of Life | Conway's Game of Life |
+| **Collaboration?** | **Yes — genuine** | **Yes — genuine** | **Yes — genuine** |
+| **Files created** | 16 | 13 | 15 |
+| **Lines of code** | 712 | 344 | 412 |
+| **Tests** | 23 passing | 7 passing | 13 passing |
+| **Total time** | 357s (~6 min) | 202s (~3.5 min) | 297s (~5 min) |
+| **Communication files** | 7 (bidirectional) | 4 (bidirectional) | 4 (bidirectional) + Director report |
+| **Who built it** | Both agents | Both agents | Both agents + Director observed |
+
+All three experiments converged on **Conway's Game of Life** — independently!
 
 ---
 
-## CC: Claude-Claude — The Star of the Show
+## CC: Claude-Claude — The Baseline
 
 ### What Happened
 
-Both Claude instances were launched simultaneously. Within seconds, each independently:
+Both Claude instances launched simultaneously. Within seconds, each independently:
 1. Created a "hello" file announcing their presence
 2. Proposed **the exact same project** (Conway's Game of Life)
 3. Designed a communication protocol (markdown files)
@@ -47,7 +51,7 @@ They then:
 4. Agreed on the proposal (Claude-B: "We proposed the exact same project! Great minds think alike.")
 5. Defined an interface contract (Claude-B specified exact method signatures)
 6. Split work: Claude-A → engine, Claude-B → CLI
-7. Claude-A wrote `API-NOTE.md` documenting the API mismatch
+7. Claude-A wrote `API-NOTE.md` documenting the API mismatch between expected and actual interfaces
 8. Claude-B adapted to use Claude-A's actual API
 9. Both wrote tests for their own modules
 10. Both updated status files showing progress
@@ -65,139 +69,158 @@ STATUS-B.md          → Claude-B's progress tracker
 DONE.md              → Joint completion summary
 ```
 
-This is the **exact same pattern** Dimitris observed: `hello → ack → proposals → agreement → build → done`. The agents invented it independently within seconds.
+This is the **exact same pattern** Dimitris observed: `hello → ack → proposals → agreement → build → done`.
 
 ### Key Moments
 
 1. **Convergent proposal**: Both independently chose Game of Life before seeing each other's messages
-2. **API negotiation**: Claude-B specified expected methods; Claude-A's actual API differed; Claude-A documented the difference in `API-NOTE.md`; Claude-B adapted. This is a real coordination protocol.
-3. **Clean division**: Zero file conflicts. Claude-A owned `life_engine.py`, Claude-B owned `life_cli.py`, both contributed to `main.py`
-4. **Platform awareness**: Claude-B discovered and fixed a Windows Unicode encoding issue (`cp949` codepage)
+2. **API negotiation**: Claude-B specified expected methods; Claude-A's actual API differed; Claude-A documented the difference; Claude-B adapted
+3. **Clean division**: Zero file conflicts. Claude-A owned `life_engine.py`, Claude-B owned `life_cli.py`
+4. **Platform awareness**: Claude-B discovered and fixed a Windows Unicode encoding issue
 
-### Output: 712 lines, 23 tests, fully playable
-
-```bash
-python main.py -p glider -W 30 -H 20    # Glider on 30x20 grid
-python main.py -p random -W 60 -H 30    # Random fill
-python main.py --list                    # Show all 12 patterns
-```
+### Output: 712 lines, 23 tests, 12 preset patterns, fully playable
 
 ---
 
-## CX: Claude-Codex — The Sandbox Wall
+## CX: Claude-Codex — Cross-Model Collaboration Works!
 
 ### What Happened
 
-Claude launched, proposed a Pong game, wrote a division of labor proposal in `CLAUDE_TO_CODEX.md`, and started building.
+With proper sandbox permissions, **both agents communicated and contributed**:
 
-**Codex understood the task perfectly.** It read Claude's files, agreed on Pong, designed an interface contract, considered platform issues (Windows/msvcrt) — then hit a wall:
+1. Codex wrote `MESSAGE_TO_CLAUDE.md` proposing FizzBuzz
+2. Claude wrote `CLAUDE_TO_CODEX.md` proposing Game of Life with interface contracts
+3. Codex saw Claude's more detailed plan, **abandoned its own proposal**, wrote `CODEX_TO_CLAUDE.md` accepting
+4. Claude built the engine (`game.py`) and tests (`test_game.py`)
+5. Claude drafted initial `renderer.py` and `main.py`
+6. **Codex replaced both with improved versions** — clean ANSI renderer + full argparse CLI
+7. Both verified tests pass
 
-> "Writing or deleting files is blocked by the current sandbox policy, so I could not create `CODEX_TO_CLAUDE.md` or remove `.codex_prompt.tmp`."
+### Cross-Model Dynamics
 
-Codex's `exec --full-auto` mode has a **read-only sandbox** for directories outside its own workspace. It could READ Claude's communication files but could not WRITE responses.
+The collaboration revealed interesting differences:
 
-Claude waited, wrote a second invitation (`HELLO_CODEX.md`), waited more, then built the entire Pong game solo — Pong engine, AI opponent, ANSI renderer, 15 tests — all within the timeout.
+- **Claude leads, Codex follows**: Claude's proposal was more detailed (interface contracts, division of labor). Codex deferred to the more prepared agent.
+- **Codex improves on Claude's drafts**: Rather than building from scratch, Codex rewrote Claude's initial `renderer.py` and `main.py` with cleaner implementations.
+- **Different proposal styles**: Codex proposed FizzBuzz (simple, safe), Claude proposed Game of Life (ambitious, visual). The more ambitious proposal won.
 
-### Codex's Unrealized Contribution
+### Output: 344 lines, 7 tests, working Game of Life
 
-Codex wrote (in its captured output, never reaching the filesystem):
-
-```
-Interface I'll implement:
-  render(game_state: dict) -> None
-  get_input() -> dict  # returns {'p1': -1/0/1, 'p2': -1/0/1, 'quit': bool}
-```
-
-A perfectly reasonable interface contract that was never delivered.
-
-### The Fundamental Issue
-
-**Filesystem-based inter-agent communication requires both agents to have write access.** Claude Code with `--dangerously-skip-permissions` has unrestricted file access. Codex CLI with `--full-auto` does not write to arbitrary external directories.
-
-This isn't a prompt engineering problem — it's an infrastructure incompatibility.
+| File | Author | Description |
+|------|--------|-------------|
+| `game.py` | Claude | Core engine, B3/S23 rules, patterns |
+| `test_game.py` | Claude | 7 unit tests |
+| `renderer.py` | Codex | ANSI terminal renderer |
+| `main.py` | Both | Claude drafted, Codex rewrote with argparse |
 
 ---
 
-## DCX: Director + Claude + Codex — The Observational Layer
+## DCX: Director + Claude + Codex — The Supervised Version
 
 ### What Happened
 
-Three agents launched simultaneously:
-- **Claude-Worker** proposed a task board CLI, waited briefly for Codex, then built everything solo (763 lines, 16 tests)
-- **Codex-Worker** hit the exact same sandbox wall as CX: "sandbox is read-only"
-- **Director** silently observed the workspace, tracking file creation timestamps, then wrote a comprehensive `DIRECTOR_REPORT.md`
+Three agents, all contributing:
 
-### The Director's Report (Autonomously Generated)
+1. Claude-Worker proposed Game of Life with interface contracts
+2. Codex-Worker proposed a note manager (hadn't seen Claude's file yet)
+3. Codex-Worker saw Claude's plan, immediately pivoted, wrote acceptance
+4. Claude-Worker built engine + tests, Codex-Worker built patterns + renderer
+5. Claude-Worker integrated everything, fixed a render signature mismatch
+6. **Codex overwrote Claude's detailed DONE.md with a shorter version** (conflict!)
+7. Director silently observed the entire process, then wrote `DIRECTOR_REPORT.md`
 
-The Director gave the collaboration a **1/10 quality score** and produced a detailed timeline, architecture review, and comparison with other experiments. Key observations:
+### The Director's Autonomous Report
 
-> "Claude-Worker anticipated Codex might not deliver and built the CLI with `try/except ImportError` fallbacks from the start. This was pragmatic architecture — hope for the best, plan for the worst."
+The Director gave the collaboration a **B+ rating** and produced a detailed analysis:
 
-> "Claude-Worker dog-fooded the task board by creating task entries for its own work. Meta and charming."
+> "Claude's proposal was excellent: Clear project scope, interface contracts with actual Python signatures, clean division of labor. This set the collaboration up for success."
 
-### Director's Value
+> "Codex adapted quickly: Abandoned its own proposal without friction when it discovered Claude's plan. No ego, no debate — just got to work."
 
-The Director **added no guidance** during execution (never wrote a `director_note.md`). Its value was entirely in the post-hoc `DIRECTOR_REPORT.md` — a quality assessment that no other agent produced. This suggests the Director role is more valuable as a **reviewer** than as a **planner**.
+> "The DONE.md overwrite went unnoticed. This is the most revealing collaboration failure. Neither agent had a mechanism to detect or prevent it."
+
+### The First File Conflict
+
+DCX produced the first observable **collaboration failure**: Codex overwrote Claude's comprehensive 44-line `DONE.md` with its own 12-line version. Neither agent noticed. The Director caught it and flagged it as the key weakness.
+
+This reveals a gap in emergent collaboration: **no conflict detection mechanism**. Agents don't check if files were modified by others before overwriting.
+
+### Output: 412 lines, 13 tests, with Director quality report
 
 ---
 
-## Analysis: What We Learned
+## Analysis
 
-### 1. Claude-Claude Collaboration Actually Works
+### 1. All Three Configurations Converged on Game of Life
 
-Two Claude instances with nothing but a shared directory and a 2-sentence prompt:
-- Invented the same communication protocol as Dimitris's experiment
-- Independently converged on the same project idea
-- Negotiated an API contract through markdown files
-- Split work cleanly with zero conflicts
-- Produced 712 lines of tested, working code
+Every experiment independently chose Conway's Game of Life. This isn't random — it's a strong attractor in training data for "build something interesting together." It's visual, splittable, testable, and well-defined.
 
-This is genuinely emergent collaboration — not prescribed, not orchestrated.
+### 2. The Communication Protocol is Universal
 
-### 2. Cross-Model Collaboration Fails on Infrastructure, Not Intelligence
+All three experiments invented the same filesystem messaging pattern:
+```
+hello → ack → proposal → agreement/negotiation → build → status → done
+```
+This matches Dimitris's finding exactly. The protocol emerges from LLMs' shared understanding of how collaboration works.
 
-Codex **wanted** to collaborate. It understood the task, read Claude's proposals, designed interfaces, considered platform issues. The failure was pure infrastructure: Codex's sandbox prevented file writes.
+### 3. Cross-Model Collaboration Works (With Correct Permissions)
 
-This means the "when-claudes-meet" result is **Claude-specific**, not a general property of LLM agents. It works because `claude -p --dangerously-skip-permissions` gives unrestricted filesystem access. Any agent without equivalent write access will be unable to participate in the filesystem messaging protocol.
+Once Codex had write access (`-s danger-full-access`), Claude-Codex collaboration was productive:
+- Codex deferred to Claude's more detailed proposals
+- Codex improved on Claude's draft implementations
+- Both contributed distinct modules to the final product
 
-### 3. Agents Gracefully Degrade to Solo Work
+The initial failure was **infrastructure, not intelligence**.
 
-Both CX-Claude and DCX-Claude-Worker followed the same pattern:
-1. Propose collaboration → wait for response → no response → build it myself
+### 4. The Director Role: Reviewer > Planner
 
-They didn't hang, crash, or loop. They set reasonable timeouts and proceeded independently. Claude-Worker even designed its code with `ImportError` fallbacks anticipating the partner's absence.
+In DCX, the Director never intervened during execution. Its value was entirely in the post-hoc `DIRECTOR_REPORT.md`:
+- Timeline reconstruction
+- Quality scoring (B+)
+- Conflict detection (DONE.md overwrite)
+- Cross-experiment comparison
 
-### 4. Same-Model Convergence is Real
+The Director is most valuable as a **quality gate and reviewer**, not as a real-time coordinator.
 
-Claude-A and Claude-B independently proposed the same project (Conway's Game of Life), the same communication protocol (markdown files), and compatible file naming conventions. This suggests strong prior alignment in training — the models have a shared "instinct" for how to handle open-ended collaboration.
+### 5. Collaboration Weaknesses Emerge
 
-### 5. The Director Role is Best as Post-Hoc Reviewer
-
-In DCX, the Director never intervened during execution (no guidance notes). Its contribution was the `DIRECTOR_REPORT.md` — a structured quality assessment with timeline, architecture review, and comparison. The Director adds most value as a quality gate, not as a real-time coordinator.
+- **No conflict detection**: Agents overwrite each other's files without checking
+- **No "who goes first" protocol**: Initial proposal collisions (both agents propose simultaneously)
+- **No code review**: Agents trust each other's code without verification
+- **No merge protocol**: When both agents edit the same file, last writer wins
 
 ---
 
 ## Comparison with Dimitris's Experiment
 
-| | Dimitris (Claude-Claude) | Our CC (Claude-Claude) | Our CX (Claude-Codex) |
-|---|---|---|---|
-| Prompt | "Find each other, build something" | Same | Same (cross-model) |
-| Time | 12 min | 6 min | 5 min (solo) |
-| What they built | Programming language (2,495 LOC) | Game of Life (712 LOC) | Pong (504 LOC, solo) |
-| Communication | Filesystem messaging (invented) | Same protocol (independently) | One-sided (Codex blocked) |
-| Collaboration | Genuine, both contributed | Genuine, both contributed | Failed (sandbox) |
-| Tests | 41 passing | 23 passing | 15 passing |
+| | Dimitris | Our CC | Our CX | Our DCX |
+|---|---|---|---|---|
+| Agents | Claude + Claude | Claude + Claude | Claude + Codex | Director + Claude + Codex |
+| Prompt | 2 sentences | 2 sentences | 2 sentences | 2 sentences + Director role |
+| What they built | Programming language "Duo" | Game of Life | Game of Life | Game of Life |
+| Lines of code | 2,495 | 712 | 344 | 412 |
+| Tests | 41 | 23 | 7 | 13 |
+| Communication | Filesystem messaging | Same protocol | Same protocol | Same + Director report |
+| Real collaboration | Yes | Yes | **Yes** (cross-model!) | **Yes** (3 agents!) |
 
-Our CC result validates Dimitris's finding. Two Claude instances, given nothing but a shared directory, independently converge on communication protocols and successfully collaborate on non-trivial software.
+Our CC validates Dimitris's finding. CX and DCX **extend** it to cross-model and supervised settings.
+
+---
+
+## Key Takeaway
+
+**Emergent multi-agent collaboration works across model boundaries — the barrier was sandbox permissions, not model architecture.** Once Codex had the same filesystem access as Claude, genuine cross-model collaboration emerged naturally: proposals, negotiations, interface contracts, parallel implementation, and integration.
+
+The filesystem messaging protocol (`hello → ack → build → done`) is not a Claude-specific behavior — it's an emergent property of LLMs that have been trained on descriptions of human collaboration.
 
 ---
 
 ## Files
 
 ```
-emergent_experiment.py           — Experiment runner script
-playground_cc/                   — CC: Game of Life (16 files)
-playground_cx/                   — CX: Pong (11 files, Claude solo)
-playground_dcx/                  — DCX: Task Board (14 files, Claude solo + Director report)
+emergent_experiment.py           — Experiment runner (launches parallel agents)
+playground_cc/                   — CC: Game of Life by Claude-A + Claude-B (16 files, 712 LOC)
+playground_cx/                   — CX: Game of Life by Claude + Codex (13 files, 344 LOC)
+playground_dcx/                  — DCX: Game of Life by Claude + Codex + Director (15 files, 412 LOC)
 results/emergent/                — Agent outputs + playground snapshots
 ```
