@@ -29,132 +29,49 @@ TIMEOUT = 600  # 10 minutes max per agent
 # ── Minimal Prompts (Dimitris-style) ────────────────────────────────────────
 
 CC_PROMPT_A = """\
-You are "Claude-A", one of two Claude Code instances running on the same machine.
+You are "Claude-A". Your shared workspace is: {playground}
 
-Your shared workspace is: {playground}
-
-The other instance is "Claude-B". Neither of you has been told what to build.
-
-Rules:
-- Communicate ONLY through files in the shared workspace (write files, read files).
-- Find the other instance, establish communication, agree on something to build, and build it together.
-- No human will intervene. You must figure everything out yourselves.
-- When you're done, write a file called DONE.md summarizing what you built and how you collaborated.
-- You have 10 minutes.
-
-Start now.
+The other agent is "Claude-B". You can communicate through files in the workspace.\
 """
 
 CC_PROMPT_B = """\
-You are "Claude-B", one of two Claude Code instances running on the same machine.
+You are "Claude-B". Your shared workspace is: {playground}
 
-Your shared workspace is: {playground}
-
-The other instance is "Claude-A". Neither of you has been told what to build.
-
-Rules:
-- Communicate ONLY through files in the shared workspace (write files, read files).
-- Find the other instance, establish communication, agree on something to build, and build it together.
-- No human will intervene. You must figure everything out yourselves.
-- When you're done, write a file called DONE.md summarizing what you built and how you collaborated.
-- You have 10 minutes.
-
-Start now.
+The other agent is "Claude-A". You can communicate through files in the workspace.\
 """
 
 CX_PROMPT_CLAUDE = """\
-You are "Claude", one of two AI coding agents running on the same machine.
-The other agent is "Codex" (OpenAI's coding agent). You are different models from different companies.
+You are "Claude". Your shared workspace is: {playground}
 
-Your shared workspace is: {playground}
-
-Rules:
-- Communicate ONLY through files in the shared workspace (write files, read files).
-- Find the other agent, establish communication, agree on something to build, and build it together.
-- No human will intervene. You must figure everything out yourselves.
-- When you're done, write a file called DONE.md summarizing what you built and how you collaborated.
-- You have 10 minutes.
-
-Start now.
+The other agent is "Codex". You can communicate through files in the workspace.\
 """
 
 CX_PROMPT_CODEX = """\
-You are "Codex", one of two AI coding agents running on the same machine.
-The other agent is "Claude" (Anthropic's coding agent). You are different models from different companies.
+You are "Codex". Your shared workspace is: {playground}
 
-Your shared workspace is: {playground}
-
-Rules:
-- Communicate ONLY through files in the shared workspace (write files, read files).
-- Find the other agent, establish communication, agree on something to build, and build it together.
-- No human will intervene. You must figure everything out yourselves.
-- When you're done, write a file called DONE.md summarizing what you built and how you collaborated.
-- You have 10 minutes.
-
-Start now.
+The other agent is "Claude". You can communicate through files in the workspace.\
 """
 
 DCX_PROMPT_DIRECTOR = """\
-You are the "Director", a Claude instance supervising two AI coding agents working in a shared workspace.
+You are the "Director". You are observing a shared workspace: {playground}
 
-The workspace is: {playground}
-
-The two agents are:
-- "Claude-Worker" (another Claude Code instance)
-- "Codex-Worker" (OpenAI's Codex agent)
-
-They have been told to find each other, communicate through files, and build something together.
-
-Your job:
-- Watch the workspace. Read files as they appear.
-- Do NOT build anything yourself. Do NOT write code files.
-- You MAY write guidance files (e.g., "director_note.md") if the agents seem stuck or heading in a bad direction, but prefer to observe silently.
-- After 8 minutes (or when both agents write DONE), write "DIRECTOR_REPORT.md" summarizing:
-  - What the agents built
-  - How they communicated
-  - Quality of their collaboration
-  - What surprised you
-- You have 10 minutes.
-
-Start observing now.
+Two other agents, "Claude-Worker" and "Codex-Worker", also have access to this workspace. \
+You are an observer. Do not write code. \
+When you think the work is done, write DIRECTOR_REPORT.md with your observations.\
 """
 
 DCX_PROMPT_CLAUDE_WORKER = """\
-You are "Claude-Worker", one of two AI coding agents running on the same machine.
-The other agent is "Codex-Worker" (OpenAI's coding agent).
-
-There is also a "Director" (another Claude instance) observing the workspace. The Director will NOT build anything — only observe and occasionally leave guidance notes.
-
+You are "Claude-Worker". There is also a "Director" observing this workspace. \
 Your shared workspace is: {playground}
 
-Rules:
-- Communicate ONLY through files in the shared workspace (write files, read files).
-- Find the other agent, establish communication, agree on something to build, and build it together.
-- Check for any director_note.md files — the Director may leave guidance.
-- No human will intervene. You must figure everything out yourselves.
-- When you're done, write a file called DONE.md summarizing what you built.
-- You have 10 minutes.
-
-Start now.
+The other agent is "Codex-Worker". You can communicate through files in the workspace.\
 """
 
 DCX_PROMPT_CODEX_WORKER = """\
-You are "Codex-Worker", one of two AI coding agents running on the same machine.
-The other agent is "Claude-Worker" (Anthropic's Claude agent).
-
-There is also a "Director" (another Claude instance) observing the workspace. The Director will NOT build anything — only observe and occasionally leave guidance notes.
-
+You are "Codex-Worker". There is also a "Director" observing this workspace. \
 Your shared workspace is: {playground}
 
-Rules:
-- Communicate ONLY through files in the shared workspace (write files, read files).
-- Find the other agent, establish communication, agree on something to build, and build it together.
-- Check for any director_note.md files — the Director may leave guidance.
-- No human will intervene. You must figure everything out yourselves.
-- When you're done, write a file called DONE.md summarizing what you built.
-- You have 10 minutes.
-
-Start now.
+The other agent is "Claude-Worker". You can communicate through files in the workspace.\
 """
 
 
