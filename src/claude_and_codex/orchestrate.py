@@ -196,7 +196,8 @@ def run_codex(prompt: str, cwd: str, images: list[str] | None = None,
     if len(prompt) > PROMPT_MAX_CHARS:
         prompt = prompt[:PROMPT_MAX_CHARS] + "\n[prompt truncated]"
 
-    args = [codex_bin, "exec", "--full-auto"]
+    args = [codex_bin, "exec", "-C", cwd,
+            "-s", "danger-full-access", "--skip-git-repo-check"]
     for img in images or []:
         args.extend(["-i", img])
 
