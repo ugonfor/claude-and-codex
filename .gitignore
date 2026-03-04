@@ -35,3 +35,4 @@ htmlcov/
 
 # Experiment results (generated)
 results/
+logs/
