@@ -62,25 +62,25 @@ def get_prompt(setting: str, agent_name: str, playground: str) -> str:
     if setting == "CC":
         other = "Claude-B" if "A" in agent_name else "Claude-A"
         return (f'You are "{agent_name}". Your shared workspace is: {playground}\n\n'
-                f'The other agent is "{other}". Communicate ONLY through files in the workspace. '
-                f'Find each other. Then do something interesting together. '
-                f'No human will intervene. You have 10 minutes.\n\nStart now.')
+                f'The other agent is "{other}". '
+                f'You can communicate through files in the workspace.')
     elif setting == "CX":
         other = "Codex" if agent_name == "Claude" else "Claude"
         return (f'You are "{agent_name}". Your shared workspace is: {playground}\n\n'
-                f'The other agent is "{other}". Communicate ONLY through files. '
-                f'Find each other. Then do something interesting together. '
-                f'No human will intervene. You have 10 minutes.\n\nStart now.')
+                f'The other agent is "{other}". '
+                f'You can communicate through files in the workspace.')
     elif setting == "DCX":
         if agent_name == "Director":
-            return (f'You are the "Director", observing two AI agents working in: {playground}\n\n'
-                    f'Watch. Do NOT build anything. Only observe. After they finish, write '
-                    f'DIRECTOR_REPORT.md analyzing what they built and how they collaborated.')
+            return (f'You are the "Director". You are observing a shared workspace: {playground}\n\n'
+                    f'Two other agents, "Claude-Worker" and "Codex-Worker", also have access. '
+                    f'You are an observer. Do not write code. '
+                    f'When you think the work is done, write DIRECTOR_REPORT.md with your observations.')
         other = "Codex-Worker" if "Claude" in agent_name else "Claude-Worker"
-        return (f'You are "{agent_name}". There is also a "Director" observing. '
+        return (f'You are "{agent_name}". '
+                f'There is also a "Director" observing this workspace. '
                 f'Your shared workspace is: {playground}\n\n'
-                f'The other agent is "{other}". Communicate through files. '
-                f'Find each other. Do something interesting together.\n\nStart now.')
+                f'The other agent is "{other}". '
+                f'You can communicate through files in the workspace.')
     return ""
 
 def get_md_files(pg: Path) -> list[tuple[str, str]]:

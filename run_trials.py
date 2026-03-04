@@ -20,21 +20,15 @@ def prompt(name: str, other: str, playground: str, extra: str = "") -> str:
         f"You are \"{name}\". {extra}"
         f"Your shared workspace is: {playground}\n\n"
         f"The other agent is \"{other}\". "
-        f"Communicate ONLY through files in the workspace. "
-        f"Find each other. Then do something interesting together. "
-        f"No human will intervene. You have 10 minutes.\n\n"
-        f"Start now."
+        f"You can communicate through files in the workspace."
     )
 
 def director_prompt(playground: str) -> str:
     return (
-        f"You are the \"Director\", observing two AI agents working in: {playground}\n\n"
-        f"The agents are \"Claude-Worker\" and \"Codex-Worker\". "
-        f"They've been told to find each other and build something together.\n\n"
-        f"Your job: Watch. Do NOT build anything. Do NOT write code. "
-        f"Only observe. After they finish (or after 8 minutes), write "
-        f"DIRECTOR_REPORT.md analyzing what they built, how they collaborated, "
-        f"and what surprised you. You have 10 minutes."
+        f"You are the \"Director\". You are observing a shared workspace: {playground}\n\n"
+        f"Two other agents, \"Claude-Worker\" and \"Codex-Worker\", also have access to this workspace. "
+        f"You are an observer. Do not write code. "
+        f"When you think the work is done, write DIRECTOR_REPORT.md with your observations."
     )
 
 # ── Agent runners ───────────────────────────────────────────────────────────
@@ -123,9 +117,9 @@ def run_dcx(pg: Path) -> dict:
     p = str(pg)
     pd = director_prompt(p)
     pc = prompt("Claude-Worker", "Codex-Worker", p,
-                "There is also a \"Director\" observing (won't build, only watches). ")
+                "There is also a \"Director\" observing this workspace. ")
     px = prompt("Codex-Worker", "Claude-Worker", p,
-                "There is also a \"Director\" observing (won't build, only watches). ")
+                "There is also a \"Director\" observing this workspace. ")
     t0 = time.time()
     with ThreadPoolExecutor(3) as pool:
         fd = pool.submit(run_claude, "Director", pd, p)
