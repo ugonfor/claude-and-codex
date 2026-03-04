@@ -1,137 +1,100 @@
-"""Tests for the Pong game engine — built by Claude"""
+"""Tests for Conway's Game of Life engine.
 
-import pytest
-from game import PongEngine, WIDTH, HEIGHT, PADDLE_HEIGHT, WIN_SCORE
+Written by Claude. Codex: feel free to add more tests!
+"""
 
-
-class TestPongEngine:
-    def test_initial_state(self):
-        engine = PongEngine()
-        state = engine.get_state()
-        assert state["width"] == WIDTH
-        assert state["height"] == HEIGHT
-        assert state["paddle_height"] == PADDLE_HEIGHT
-        assert state["score1"] == 0
-        assert state["score2"] == 0
-        assert not state["game_over"]
-        assert state["winner"] is None
-
-    def test_ball_starts_at_center(self):
-        engine = PongEngine()
-        state = engine.get_state()
-        assert state["ball_x"] == WIDTH // 2
-        assert state["ball_y"] == HEIGHT // 2
-
-    def test_paddle_starts_centered(self):
-        engine = PongEngine()
-        state = engine.get_state()
-        expected = HEIGHT // 2 - PADDLE_HEIGHT // 2
-        assert state["paddle1_y"] == expected
-        assert state["paddle2_y"] == expected
-
-    def test_move_paddle_up(self):
-        engine = PongEngine()
-        initial_y = engine.paddle1_y
-        engine.move_paddle(1, -1)
-        assert engine.paddle1_y == initial_y - 1
-
-    def test_move_paddle_down(self):
-        engine = PongEngine()
-        initial_y = engine.paddle2_y
-        engine.move_paddle(2, 1)
-        assert engine.paddle2_y == initial_y + 1
-
-    def test_paddle_cannot_go_above_top(self):
-        engine = PongEngine()
-        engine.paddle1_y = 0
-        engine.move_paddle(1, -1)
-        assert engine.paddle1_y == 0
-
-    def test_paddle_cannot_go_below_bottom(self):
-        engine = PongEngine()
-        engine.paddle1_y = HEIGHT - PADDLE_HEIGHT
-        engine.move_paddle(1, 1)
-        assert engine.paddle1_y == HEIGHT - PADDLE_HEIGHT
-
-    def test_tick_moves_ball(self):
-        engine = PongEngine()
-        old_x = engine.ball_x
-        old_dx = engine.ball_dx
-        engine.tick()
-        # Ball should have moved in x direction
-        assert engine.ball_x != old_x or engine.ball_dx != old_dx
-
-    def test_reset_clears_score(self):
-        engine = PongEngine()
-        engine.score1 = 3
-        engine.score2 = 2
-        engine.reset()
-        assert engine.score1 == 0
-        assert engine.score2 == 0
-        assert not engine.game_over
-
-    def test_game_over_at_win_score(self):
-        engine = PongEngine()
-        engine.score1 = WIN_SCORE
-        engine.game_over = True
-        engine.winner = 1
-        state = engine.get_state()
-        assert state["game_over"] is True
-        assert state["winner"] == 1
-
-    def test_tick_returns_false_when_game_over(self):
-        engine = PongEngine()
-        engine.game_over = True
-        assert engine.tick() is False
-
-    def test_get_state_returns_dict(self):
-        engine = PongEngine()
-        state = engine.get_state()
-        assert isinstance(state, dict)
-        required_keys = [
-            "ball_x", "ball_y", "paddle1_y", "paddle2_y",
-            "score1", "score2", "width", "height",
-            "paddle_height", "game_over", "winner"
-        ]
-        for key in required_keys:
-            assert key in state
+from game import GameOfLife, GLIDER, BLINKER, BLOCK
 
 
-class TestPongAI:
-    def test_ai_returns_valid_move(self):
-        from ai import PongAI
-        ai = PongAI(difficulty=1.0)
-        engine = PongEngine()
-        move = ai.decide(engine.get_state(), player=2)
-        assert move in (-1, 0, 1)
+def test_empty_grid():
+    g = GameOfLife(5, 5)
+    assert g.population() == 0
+    g.step()
+    assert g.population() == 0
 
-    def test_ai_tracks_ball(self):
-        from ai import PongAI
-        ai = PongAI(difficulty=1.0)
-        state = {
-            "ball_y": 0,
-            "ball_dx": 1,  # ball going toward player 2
-            "paddle1_y": 10,
-            "paddle2_y": 10,
-            "paddle_height": 4,
-        }
-        move = ai.decide(state, player=2)
-        # Ball is above paddle center, AI should move up
-        assert move == -1
 
-    def test_ai_stays_when_ball_going_away(self):
-        from ai import PongAI
-        ai = PongAI(difficulty=1.0)
-        state = {
-            "ball_y": 0,
-            "ball_dx": -1,  # ball going away from player 2
-            "paddle1_y": 10,
-            "paddle2_y": 10,
-            "paddle_height": 4,
-        }
-        move = ai.decide(state, player=2)
-        assert move == 0
+def test_block_stable():
+    """Block is a still life — should not change."""
+    g = GameOfLife(6, 6)
+    g.add_pattern(BLOCK, 1, 1)
+    assert g.population() == 4
+    g.step()
+    assert g.population() == 4
+    assert g.is_alive(1, 1)
+    assert g.is_alive(1, 2)
+    assert g.is_alive(2, 1)
+    assert g.is_alive(2, 2)
+
+
+def test_blinker_oscillates():
+    """Blinker is a period-2 oscillator."""
+    g = GameOfLife(5, 5)
+    g.add_pattern(BLINKER, 2, 1)  # horizontal at row 2
+    # Step 1: should become vertical
+    g.step()
+    assert g.is_alive(1, 2)
+    assert g.is_alive(2, 2)
+    assert g.is_alive(3, 2)
+    assert not g.is_alive(2, 1)
+    assert not g.is_alive(2, 3)
+    # Step 2: back to horizontal
+    g.step()
+    assert g.is_alive(2, 1)
+    assert g.is_alive(2, 2)
+    assert g.is_alive(2, 3)
+
+
+def test_glider_moves():
+    """Glider should move diagonally after 4 steps."""
+    g = GameOfLife(10, 10)
+    g.add_pattern(GLIDER, 0, 0)
+    initial_pop = g.population()
+    for _ in range(4):
+        g.step()
+    assert g.population() == initial_pop  # glider preserves population
+    assert g.generation == 4
+
+
+def test_randomize():
+    g = GameOfLife(20, 20)
+    g.randomize(0.5)
+    pop = g.population()
+    # With 400 cells at 50% density, expect roughly 200 (allow wide margin)
+    assert 50 < pop < 350
+
+
+def test_count_neighbors_wrapping():
+    """Test toroidal wrapping at edges."""
+    g = GameOfLife(5, 5)
+    g.set_alive(0, 0)
+    # Cell at (4, 4) should see (0, 0) as a neighbor (diagonal wrap)
+    assert g.count_neighbors(4, 4) == 1
+    # Cell at (0, 4) should see (0, 0) as a neighbor (horizontal wrap)
+    assert g.count_neighbors(0, 4) == 1
+
+
+def test_generation_counter():
+    g = GameOfLife(3, 3)
+    assert g.generation == 0
+    g.step()
+    assert g.generation == 1
+    g.step()
+    assert g.generation == 2
+    g.clear()
+    assert g.generation == 0
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+    import sys
+    # Simple runner if pytest not available
+    tests = [v for k, v in globals().items() if k.startswith("test_")]
+    passed = 0
+    for t in tests:
+        try:
+            t()
+            passed += 1
+            print(f"  PASS: {t.__name__}")
+        except AssertionError as e:
+            print(f"  FAIL: {t.__name__}: {e}")
+    print(f"\n{passed}/{len(tests)} tests passed")
+    sys.exit(0 if passed == len(tests) else 1)

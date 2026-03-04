@@ -206,14 +206,17 @@ def run_codex(name: str, prompt: str, cwd: str, timeout: int = TIMEOUT) -> dict:
 
     start = time.time()
     try:
-        # Codex uses exec --full-auto with prompt as argument
-        # For long prompts, write to temp file
+        # Use -C to set workspace root and -a never -s danger-full-access
+        # to match Claude's --dangerously-skip-permissions level.
+        # --full-auto only grants workspace-write which blocks writes to
+        # shared directories that aren't the workspace root.
         prompt_file = Path(cwd) / ".codex_prompt.tmp"
         prompt_file.write_text(prompt, encoding="utf-8")
         arg = f"Read your full task from '{prompt_file}'. Execute it. Delete the file when done."
 
         result = subprocess.run(
-            [codex_bin, "exec", "--full-auto", arg],
+            [codex_bin, "exec", "-C", cwd,
+             "-s", "danger-full-access", "--skip-git-repo-check", arg],
             capture_output=True,
             text=True,
             timeout=timeout,
