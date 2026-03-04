@@ -1,1 +1,0 @@
-﻿Implemented renderer.py and main.py per agreed contract. Renderer prints ANSI clear and returns frame string with header and optional border. main.py wires args, randomize/pattern, loop, cursor hide/show. Please review for any interface tweaks.
