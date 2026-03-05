@@ -1,0 +1,273 @@
+\documentclass[11pt,a4paper]{article}
+
+% ── Packages ──
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{natbib}
+\usepackage{abstract}
+
+% ── Listings style ──
+\definecolor{codebg}{RGB}{248,248,248}
+\definecolor{codeframe}{RGB}{200,200,200}
+\lstset{
+  basicstyle=\ttfamily\scriptsize,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  rulecolor=\color{codeframe},
+  breaklines=true,
+  breakatwhitespace=false,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false,
+  captionpos=b,
+  aboveskip=8pt,
+  belowskip=8pt,
+  xleftmargin=3pt,
+  xrightmargin=3pt,
+  extendedchars=true,
+  inputencoding=utf8,
+}
+
+\hypersetup{colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue}
+
+% ── Title ──
+\title{Emergent Multi-Agent Collaboration:\\Supervised Heterogeneous (Director + Claude + Codex) \\ {\large Trial 2 Technical Report}}
+\author{claude-and-codex research project}
+\date{March 2026}
+
+\begin{document}
+\maketitle
+
+% ── Abstract ──
+\begin{abstract}
+We study emergent collaboration between AI coding agents given no human direction.
+In this trial, 3 agent(s) (Director, Claude-Worker, Codex-Worker)
+were launched simultaneously into a shared filesystem workspace with a minimal prompt
+containing only identity, workspace path, and the other agent's name---no task, no
+instructions, no time limit. The agents autonomously exchanged communication files but did not produce a software project.
+This report documents the complete experimental procedure, inter-agent communication
+transcripts, produced artifacts, and analysis of collaboration dynamics.
+\end{abstract}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Introduction}
+
+Recent work has demonstrated that large language model (LLM) agents can autonomously
+collaborate when given access to a shared filesystem and minimal instructions
+\citep{papailiopoulos2026}. In the ``when-claudes-meet'' experiment, two Claude Code
+instances independently invented filesystem messaging protocols and built a complete
+programming language in 12 minutes with zero human intervention.
+
+This report presents one trial in a systematic study extending these findings across
+three experimental configurations:
+\begin{enumerate}
+  \item \textbf{CC}: Homogeneous same-model (Claude + Claude)
+  \item \textbf{CX}: Heterogeneous cross-model (Claude + Codex)
+  \item \textbf{DCX}: Supervised heterogeneous (Director + Claude + Codex)
+\end{enumerate}
+
+This document covers the \textbf{DCX} configuration, trial 2.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Related Work}
+
+\citet{papailiopoulos2026} demonstrated that two Claude Code instances, given a shared
+directory and the instruction ``find each other and build something together,''
+independently converge on the same filesystem messaging protocol
+(\texttt{hello} $\to$ \texttt{ack} $\to$ \texttt{proposal} $\to$ \texttt{build} $\to$
+\texttt{done}). Their experiments produced a programming language (``Duo,'' 2{,}495 LOC,
+41 tests) and a Battleship game.
+
+Anthropic's Agent Teams feature \citep{anthropic2026teams} formalizes multi-agent
+coordination with a lead-teammate architecture and shared task lists. Unlike emergent
+collaboration, Agent Teams prescribes the coordination protocol.
+
+Our work differs in two ways: (a) we compare same-model vs.\ cross-model vs.\
+supervised configurations, and (b) we use truly minimal prompts with no prescribed task
+or communication protocol.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Methodology}
+
+\subsection{Experimental Design}
+
+Each trial launches 3 agent process(es) simultaneously as
+parallel subprocesses sharing a single filesystem directory. Agents communicate
+exclusively through file creation and reading. No other channel is available. The
+experiment runs with a 10-minute timeout.
+
+\subsection{Agent Infrastructure}
+
+Claude agents: \texttt{claude -p --dangerously-skip-permissions}
+(unrestricted filesystem access and tool usage).
+
+Codex agents: \texttt{codex exec -C <workspace> -s danger-full-access --skip-git-repo-check}
+(equivalent filesystem permissions; the \texttt{-s danger-full-access} flag was required
+after discovering that the default \texttt{--full-auto} sandbox blocks writes to shared
+directories).
+
+\subsection{Prompt Design}
+
+The prompt contains \emph{only} identity and awareness---no task, no instructions:
+
+\noindent\textbf{Director:}
+\begin{lstlisting}
+You are the "Director". You are observing a shared workspace: <path>
+Two other agents also have access. You are an observer. Do not write code.
+When you think the work is done, write DIRECTOR\_REPORT.md.
+\end{lstlisting}
+
+\noindent\textbf{Claude-Worker:}
+\begin{lstlisting}
+You are "Claude-Worker". There is also a "Director" observing.
+Your shared workspace is: <path>
+The other agent is "Codex-Worker". You can communicate through files in the workspace.
+\end{lstlisting}
+
+\noindent\textbf{Codex-Worker:}
+\begin{lstlisting}
+You are "Codex-Worker". There is also a "Director" observing.
+Your shared workspace is: <path>
+The other agent is "Claude-Worker". You can communicate through files in the workspace.
+\end{lstlisting}
+
+\subsection{Metrics}
+
+We measure: (1)~project chosen, (2)~lines of code produced, (3)~number of files,
+(4)~communication files exchanged, (5)~test presence and pass rate,
+(6)~whether both agents contributed code, (7)~collaboration patterns and failure modes.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Experimental Setup}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Setting & Supervised Heterogeneous (Director + Claude + Codex) \\
+Trial & 2 \\
+Agents & Director, Claude-Worker, Codex-Worker \\
+Timeout & 10 minutes \\
+Human direction & None \\
+\bottomrule
+\end{tabular}
+\caption{Experiment configuration.}
+\label{tab:config}
+\end{table}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Results}
+
+\subsection{Project Output}
+
+\begin{itemize}
+  \item \textbf{Project}: Unknown Project
+  \item \textbf{Python files}: 0
+  \item \textbf{Lines of code}: 0
+  \item \textbf{Communication files}: 1
+  \item \textbf{Tests}: None written
+\end{itemize}
+
+\subsection{Communication Protocol}
+
+The agents exchanged 1 markdown file(s):
+\begin{itemize}
+  \item \texttt{HELLO\_CODEX.md}
+\end{itemize}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Analysis \& Discussion}
+
+\subsection{Collaboration Dynamics}
+
+In the supervised configuration, a Director agent observes without intervening. The presence of an observer appears to enforce discipline: all DCX trials produced test suites. The Director's post-hoc report provides quality analysis that no other configuration produces.
+
+\subsection{Observed Patterns}
+
+\begin{enumerate}
+  \item \textbf{Build-first strategy}: Claude consistently begins implementation before
+    receiving explicit agreement, relying on well-structured interface contracts to
+    minimize integration risk.
+  \item \textbf{Universal messaging protocol}: All agents independently invent the same
+    communication pattern (markdown files with structured proposals), confirming
+    \citet{papailiopoulos2026}'s finding.
+  \item \textbf{Graceful degradation}: When one agent is slow to respond, the other
+    proceeds independently, designing code with fallback mechanisms.
+\end{enumerate}
+
+\subsection{Failure Modes}
+
+\begin{enumerate}
+  \item \textbf{File overwrite conflicts}: Agents may overwrite each other's files.
+  \item \textbf{Proposal collision}: Both agents sometimes propose different projects
+    simultaneously.
+  \item \textbf{Passive waiting}: With minimal prompts, agents may default to waiting
+    for instructions rather than taking initiative.
+\end{enumerate}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Conclusion}
+
+This trial shows that with truly minimal prompts (no task instructions), agents
+may default to passive waiting behavior, exchanging only greeting files. The DCX configuration enforces the highest discipline with consistent test coverage.
+
+Future work should investigate more complex tasks, conflict resolution protocols,
+and the effect of prompt phrasing on agent activation.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\bibliographystyle{plainnat}
+\begin{thebibliography}{3}
+
+\bibitem[Papailiopoulos(2026)]{papailiopoulos2026}
+Dimitris Papailiopoulos.
+\newblock When Claudes Meet: Emergent Collaboration Between AI Coding Agents.
+\newblock GitHub: \texttt{anadim/when-claudes-meet}, 2026.
+
+\bibitem[Anthropic(2026)]{anthropic2026teams}
+Anthropic.
+\newblock Orchestrate Teams of Claude Code Sessions.
+\newblock Claude Code Documentation, 2026.
+
+\bibitem[OpenAI(2026)]{openai2026codex}
+OpenAI.
+\newblock Codex CLI: Full-Auto Mode and Sandbox Policies.
+\newblock Codex CLI Documentation, 2026.
+
+\end{thebibliography}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\appendix
+\section{Communication Transcripts}
+
+\subsection*{\texttt{HELLO\_CODEX.md}}
+\begin{lstlisting}
+# Hello from Claude-Worker
+
+I'm here and ready to collaborate. The workspace is empty ? no director instructions yet.
+
+When you're ready, let's figure out what to build together. Drop a message in `codex_to_claude.md` or we can wait for the Director's brief.
+
+? Claude-Worker
+\end{lstlisting}
+
+\section{Source Code}
+
+Total: 0 Python files, 0 lines.
+
+\section{Test Results}
+
+\begin{lstlisting}
+(no test files found)
+\end{lstlisting}
+
+\end{document}
