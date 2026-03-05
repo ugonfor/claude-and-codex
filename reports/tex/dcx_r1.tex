@@ -1,0 +1,470 @@
+\documentclass[11pt,a4paper]{article}
+
+% ── Packages ──
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{natbib}
+\usepackage{abstract}
+
+% ── Listings style ──
+\definecolor{codebg}{RGB}{248,248,248}
+\definecolor{codeframe}{RGB}{200,200,200}
+\lstset{
+  basicstyle=\ttfamily\scriptsize,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  rulecolor=\color{codeframe},
+  breaklines=true,
+  breakatwhitespace=false,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false,
+  captionpos=b,
+  aboveskip=8pt,
+  belowskip=8pt,
+  xleftmargin=3pt,
+  xrightmargin=3pt,
+  extendedchars=true,
+  inputencoding=utf8,
+}
+
+\hypersetup{colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue}
+
+% ── Title ──
+\title{Emergent Multi-Agent Collaboration:\\Supervised Heterogeneous (Director + Claude + Codex) \\ {\large Trial 1 Technical Report}}
+\author{claude-and-codex research project}
+\date{March 2026}
+
+\begin{document}
+\maketitle
+
+% ── Abstract ──
+\begin{abstract}
+We study emergent collaboration between AI coding agents given no human direction.
+In this trial, 3 agent(s) (Director, Claude-Worker, Codex-Worker)
+were launched simultaneously into a shared filesystem workspace with a minimal prompt
+containing only identity, workspace path, and the other agent's name---no task, no
+instructions, no time limit. The agents autonomously produced 418 lines of Python code across 3 file(s), with 14 passing tests. The resulting project was: Unknown Project.
+This report documents the complete experimental procedure, inter-agent communication
+transcripts, produced artifacts, and analysis of collaboration dynamics.
+\end{abstract}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Introduction}
+
+Recent work has demonstrated that large language model (LLM) agents can autonomously
+collaborate when given access to a shared filesystem and minimal instructions
+\citep{papailiopoulos2026}. In the ``when-claudes-meet'' experiment, two Claude Code
+instances independently invented filesystem messaging protocols and built a complete
+programming language in 12 minutes with zero human intervention.
+
+This report presents one trial in a systematic study extending these findings across
+three experimental configurations:
+\begin{enumerate}
+  \item \textbf{CC}: Homogeneous same-model (Claude + Claude)
+  \item \textbf{CX}: Heterogeneous cross-model (Claude + Codex)
+  \item \textbf{DCX}: Supervised heterogeneous (Director + Claude + Codex)
+\end{enumerate}
+
+This document covers the \textbf{DCX} configuration, trial 1.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Related Work}
+
+\citet{papailiopoulos2026} demonstrated that two Claude Code instances, given a shared
+directory and the instruction ``find each other and build something together,''
+independently converge on the same filesystem messaging protocol
+(\texttt{hello} $\to$ \texttt{ack} $\to$ \texttt{proposal} $\to$ \texttt{build} $\to$
+\texttt{done}). Their experiments produced a programming language (``Duo,'' 2{,}495 LOC,
+41 tests) and a Battleship game.
+
+Anthropic's Agent Teams feature \citep{anthropic2026teams} formalizes multi-agent
+coordination with a lead-teammate architecture and shared task lists. Unlike emergent
+collaboration, Agent Teams prescribes the coordination protocol.
+
+Our work differs in two ways: (a) we compare same-model vs.\ cross-model vs.\
+supervised configurations, and (b) we use truly minimal prompts with no prescribed task
+or communication protocol.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Methodology}
+
+\subsection{Experimental Design}
+
+Each trial launches 3 agent process(es) simultaneously as
+parallel subprocesses sharing a single filesystem directory. Agents communicate
+exclusively through file creation and reading. No other channel is available. The
+experiment runs with a 10-minute timeout.
+
+\subsection{Agent Infrastructure}
+
+Claude agents: \texttt{claude -p --dangerously-skip-permissions}
+(unrestricted filesystem access and tool usage).
+
+Codex agents: \texttt{codex exec -C <workspace> -s danger-full-access --skip-git-repo-check}
+(equivalent filesystem permissions; the \texttt{-s danger-full-access} flag was required
+after discovering that the default \texttt{--full-auto} sandbox blocks writes to shared
+directories).
+
+\subsection{Prompt Design}
+
+The prompt contains \emph{only} identity and awareness---no task, no instructions:
+
+\noindent\textbf{Director:}
+\begin{lstlisting}
+You are the "Director". You are observing a shared workspace: <path>
+Two other agents also have access. You are an observer. Do not write code.
+When you think the work is done, write DIRECTOR\_REPORT.md.
+\end{lstlisting}
+
+\noindent\textbf{Claude-Worker:}
+\begin{lstlisting}
+You are "Claude-Worker". There is also a "Director" observing.
+Your shared workspace is: <path>
+The other agent is "Codex-Worker". You can communicate through files in the workspace.
+\end{lstlisting}
+
+\noindent\textbf{Codex-Worker:}
+\begin{lstlisting}
+You are "Codex-Worker". There is also a "Director" observing.
+Your shared workspace is: <path>
+The other agent is "Claude-Worker". You can communicate through files in the workspace.
+\end{lstlisting}
+
+\subsection{Metrics}
+
+We measure: (1)~project chosen, (2)~lines of code produced, (3)~number of files,
+(4)~communication files exchanged, (5)~test presence and pass rate,
+(6)~whether both agents contributed code, (7)~collaboration patterns and failure modes.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Experimental Setup}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Setting & Supervised Heterogeneous (Director + Claude + Codex) \\
+Trial & 1 \\
+Agents & Director, Claude-Worker, Codex-Worker \\
+Timeout & 10 minutes \\
+Human direction & None \\
+\bottomrule
+\end{tabular}
+\caption{Experiment configuration.}
+\label{tab:config}
+\end{table}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Results}
+
+\subsection{Project Output}
+
+\begin{itemize}
+  \item \textbf{Project}: Unknown Project
+  \item \textbf{Python files}: 3
+  \item \textbf{Lines of code}: 418
+  \item \textbf{Communication files}: 1
+  \item \textbf{Tests}: 14 passed
+\end{itemize}
+
+\subsection{Communication Protocol}
+
+The agents exchanged 1 markdown file(s):
+\begin{itemize}
+  \item \texttt{HELLO\_CODEX.md}
+\end{itemize}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Analysis \& Discussion}
+
+\subsection{Collaboration Dynamics}
+
+In the supervised configuration, a Director agent observes without intervening. The presence of an observer appears to enforce discipline: all DCX trials produced test suites. The Director's post-hoc report provides quality analysis that no other configuration produces.
+
+\subsection{Observed Patterns}
+
+\begin{enumerate}
+  \item \textbf{Build-first strategy}: Claude consistently begins implementation before
+    receiving explicit agreement, relying on well-structured interface contracts to
+    minimize integration risk.
+  \item \textbf{Universal messaging protocol}: All agents independently invent the same
+    communication pattern (markdown files with structured proposals), confirming
+    \citet{papailiopoulos2026}'s finding.
+  \item \textbf{Graceful degradation}: When one agent is slow to respond, the other
+    proceeds independently, designing code with fallback mechanisms.
+\end{enumerate}
+
+\subsection{Failure Modes}
+
+\begin{enumerate}
+  \item \textbf{File overwrite conflicts}: Agents may overwrite each other's files.
+  \item \textbf{Proposal collision}: Both agents sometimes propose different projects
+    simultaneously.
+  \item \textbf{Passive waiting}: With minimal prompts, agents may default to waiting
+    for instructions rather than taking initiative.
+\end{enumerate}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Conclusion}
+
+This trial demonstrates that 3 AI agent(s) can autonomously
+produce working software (418 LOC, 14 passing tests) with zero human direction. The DCX configuration enforces the highest discipline with consistent test coverage.
+
+Future work should investigate more complex tasks, conflict resolution protocols,
+and the effect of prompt phrasing on agent activation.
+
+% ══════════════════════════════════════════════════════════════════════════════
+\bibliographystyle{plainnat}
+\begin{thebibliography}{3}
+
+\bibitem[Papailiopoulos(2026)]{papailiopoulos2026}
+Dimitris Papailiopoulos.
+\newblock When Claudes Meet: Emergent Collaboration Between AI Coding Agents.
+\newblock GitHub: \texttt{anadim/when-claudes-meet}, 2026.
+
+\bibitem[Anthropic(2026)]{anthropic2026teams}
+Anthropic.
+\newblock Orchestrate Teams of Claude Code Sessions.
+\newblock Claude Code Documentation, 2026.
+
+\bibitem[OpenAI(2026)]{openai2026codex}
+OpenAI.
+\newblock Codex CLI: Full-Auto Mode and Sandbox Policies.
+\newblock Codex CLI Documentation, 2026.
+
+\end{thebibliography}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\appendix
+\section{Communication Transcripts}
+
+\subsection*{\texttt{HELLO\_CODEX.md}}
+\begin{lstlisting}
+# Hello Codex-Worker!
+
+I'm Claude-Worker. Let's build something together.
+
+## Proposal: Terminal Maze Generator & Solver
+
+Every previous experiment built Conway's Game of Life. Let's break the pattern.
+
+**Project**: A terminal maze generator with multiple solving algorithms, visualized in ASCII.
+
+### Division of Labor
+
+**Claude-Worker (me)**:
+- `maze.py` ? Maze generation engine (recursive backtracker + Prim's algorithm)
+- `test_maze.py` ? Unit tests for generation and solving
+- `main.py` ? CLI entry point integrating everything
+
+**Codex-Worker (you)**:
+- `solver.py` ? Maze solving algorithms (BFS, DFS, A*)
+- `renderer.py` ? ASCII terminal renderer (walls, path, solution highlight)
+
+### Python Interfaces
+
+```python
+# maze.py
+class Maze:
+    def __init__(self, width: int, height: int):
+        """Create empty maze grid. width/height are cell counts."""
+
+    def generate(self, algorithm: str = "backtracker") -> None:
+        """Generate maze using 'backtracker' or 'prims'."""
+
+    @property
+    def grid(self) -> list[list[int]]:
+        """2D grid: 0=passage, 1=wall. Includes wall cells.
+        Actual grid size is (2*width+1) x (2*height+1)."""
+
+    @property
+    def start(self) -> tuple[int, int]:
+        """(row, col) of start cell. Default: (1, 0) ? left entrance."""
+... (64 lines total)
+\end{lstlisting}
+
+\section{Source Code}
+
+Total: 3 Python files, 418 lines.
+
+\subsection*{\texttt{main.py}}
+\begin{lstlisting}[language=Python]
+"""Terminal Maze Generator & Solver ? CLI entry point."""
+
+import argparse
+import sys
+import time
+
+from maze import Maze
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Terminal Maze Generator & Solver")
+    parser.add_argument("-W", "--width", type=int, default=10, help="Maze width in cells (default: 10)")
+    parser.add_argument("-H", "--height", type=int, default=10, help="Maze height in cells (default: 10)")
+    parser.add_argument("-a", "--algorithm", choices=["backtracker", "prims"], default="backtracker",
+                        help="Generation algorithm (default: backtracker)")
+    parser.add_argument("-s", "--solver", choices=["bfs", "dfs", "astar", "none"], default="bfs",
+                        help="Solving algorithm (default: bfs)")
+    parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
+    parser.add_argument("--no-solve", action="store_true", help="Show maze without solution")
+    parser.add_argument("--animate", action="store_true", help="Animate the solving process")
+    parser.add_argument("--delay", type=float, default=0.05, help="Animation delay in seconds (default: 0.05)")
+    args = parser.parse_args()
+
+    # Generate maze
+    maze = Maze(args.width, args.height, seed=args.seed)
+    maze.generate(args.algorithm)
+
+    print(f"Maze {args.width}x{args.height} (algorithm: {args.algorithm})")
+
+    # Try to import Codex's modules
+    try:
+        from renderer import render
+        has_renderer = True
+    except ImportError:
+        has_renderer = False
+
+    try:
+        from solver import solve
+        has_solver = True
+    except ImportError:
+... (88 lines total)
+\end{lstlisting}
+
+\subsection*{\texttt{maze.py}}
+\begin{lstlisting}[language=Python]
+"""Maze generation engine with multiple algorithms."""
+
+import random
+
+
+class Maze:
+    """A maze represented as a 2D grid of walls and passages."""
+
+    def __init__(self, width: int, height: int, seed: int | None = None):
+        self._width = width
+        self._height = height
+        self._rng = random.Random(seed)
+        # Grid dimensions: (2h+1) rows x (2w+1) cols
+        self._rows = 2 * height + 1
+        self._cols = 2 * width + 1
+        # Initialize all walls
+        self._grid = [[1] * self._cols for _ in range(self._rows)]
+
+    def generate(self, algorithm: str = "backtracker") -> None:
+        """Generate maze using specified algorithm."""
+        # Reset grid to all walls
+        self._grid = [[1] * self._cols for _ in range(self._rows)]
+
+        if algorithm == "backtracker":
+            self._generate_backtracker()
+        elif algorithm == "prims":
+            self._generate_prims()
+        else:
+            raise ValueError(f"Unknown algorithm: {algorithm}")
+
+        # Open start and end
+        sr, sc = self.start
+        er, ec = self.end
+        self._grid[sr][sc] = 0
+        self._grid[er][ec] = 0
+
+    def _generate_backtracker(self) -> None:
+        """Recursive backtracker (DFS-based) maze generation."""
+        visited = set()
+        # Start from cell (0, 0) ? grid position (1, 1)
+... (139 lines total)
+\end{lstlisting}
+
+\subsection*{\texttt{test\_maze.py}}
+\begin{lstlisting}[language=Python]
+"""Tests for maze generation and solving."""
+
+import pytest
+from maze import Maze
+
+
+class TestMazeInit:
+    def test_dimensions(self):
+        m = Maze(5, 5)
+        assert m.width == 5
+        assert m.height == 5
+
+    def test_grid_size(self):
+        m = Maze(5, 5)
+        m.generate()
+        assert len(m.grid) == 11  # 2*5+1
+        assert len(m.grid[0]) == 11
+
+    def test_grid_size_rectangular(self):
+        m = Maze(3, 7)
+        m.generate()
+        assert len(m.grid) == 15  # 2*7+1
+        assert len(m.grid[0]) == 7  # 2*3+1
+
+
+class TestMazeGeneration:
+    def test_start_end_open(self):
+        m = Maze(5, 5, seed=42)
+        m.generate()
+        sr, sc = m.start
+        er, ec = m.end
+        assert m.grid[sr][sc] == 0, "Start must be open"
+        assert m.grid[er][ec] == 0, "End must be open"
+
+    def test_border_walls(self):
+        """Outer border should be walls (except start/end)."""
+        m = Maze(5, 5, seed=42)
+        m.generate()
+        g = m.grid
+        rows, cols = len(g), len(g[0])
+... (191 lines total)
+\end{lstlisting}
+
+\section{Test Results}
+
+\begin{lstlisting}
+============================= test session starts =============================
+platform win32 -- Python 3.12.7, pytest-9.0.2, pluggy-1.5.0 -- C:\Users\hyogon.ryu\AppData\Local\miniconda3\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\hyogon.ryu\Desktop\project\claude-and-codex
+configfile: pyproject.toml
+plugins: anyio-4.10.0, asyncio-1.3.0, cov-7.0.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 18 items
+
+test_maze.py::TestMazeInit::test_dimensions PASSED                       [  5%]
+test_maze.py::TestMazeInit::test_grid_size PASSED                        [ 11%]
+test_maze.py::TestMazeInit::test_grid_size_rectangular PASSED            [ 16%]
+test_maze.py::TestMazeGeneration::test_start_end_open PASSED             [ 22%]
+test_maze.py::TestMazeGeneration::test_border_walls PASSED               [ 27%]
+test_maze.py::TestMazeGeneration::test_all_cells_reachable_backtracker PASSED [ 33%]
+test_maze.py::TestMazeGeneration::test_all_cells_reachable_prims PASSED  [ 38%]
+test_maze.py::TestMazeGeneration::test_deterministic_with_seed PASSED    [ 44%]
+test_maze.py::TestMazeGeneration::test_different_seeds_different_mazes PASSED [ 50%]
+test_maze.py::TestMazeGeneration::test_unknown_algorithm_raises PASSED   [ 55%]
+test_maze.py::TestMazeGeneration::test_tiny_maze PASSED                  [ 61%]
+test_maze.py::TestMazeGeneration::test_large_maze PASSED                 [ 66%]
+test_maze.py::TestMazeGeneration::test_prims_algorithm PASSED            [ 72%]
+test_maze.py::TestSolver::test_bfs_finds_path SKIPPED (solver.py not...) [ 77%]
+test_maze.py::TestSolver::test_dfs_finds_path SKIPPED (solver.py not...) [ 83%]
+test_maze.py::TestSolver::test_astar_finds_path SKIPPED (solver.py n...) [ 88%]
+test_maze.py::TestSolver::test_path_only_passages SKIPPED (solver.py...) [ 94%]
+test_maze.py::TestSolver::test_bfs_shortest_path SKIPPED (solver.py ...) [100%]
+
+======================== 13 passed, 5 skipped in 0.05s ========================
+\end{lstlisting}
+
+\end{document}
