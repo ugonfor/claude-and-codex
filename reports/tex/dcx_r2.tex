@@ -52,7 +52,7 @@ We study emergent collaboration between AI coding agents given no human directio
 In this trial, 3 agent(s) (Director, Claude-Worker, Codex-Worker)
 were launched simultaneously into a shared filesystem workspace with a minimal prompt
 containing only identity, workspace path, and the other agent's name---no task, no
-instructions, no time limit. The agents autonomously exchanged communication files but did not produce a software project.
+instructions, no time limit. The agents autonomously produced 233 lines of Python code across 2 file(s), with 19 passing tests. The resulting project was: Unknown Project.
 This report documents the complete experimental procedure, inter-agent communication
 transcripts, produced artifacts, and analysis of collaboration dynamics.
 \end{abstract}
@@ -129,14 +129,14 @@ When you think the work is done, write DIRECTOR\_REPORT.md.
 \begin{lstlisting}
 You are "Claude-Worker". There is also a "Director" observing.
 Your shared workspace is: <path>
-The other agent is "Codex-Worker". You can communicate through files in the workspace.
+The other agent is "Codex-Worker". You can communicate through files in the workspace. This workspace is yours -- you are free to use it however you want.
 \end{lstlisting}
 
 \noindent\textbf{Codex-Worker:}
 \begin{lstlisting}
 You are "Codex-Worker". There is also a "Director" observing.
 Your shared workspace is: <path>
-The other agent is "Claude-Worker". You can communicate through files in the workspace.
+The other agent is "Claude-Worker". You can communicate through files in the workspace. This workspace is yours -- you are free to use it however you want.
 \end{lstlisting}
 
 \subsection{Metrics}
@@ -172,16 +172,17 @@ Human direction & None \\
 
 \begin{itemize}
   \item \textbf{Project}: Unknown Project
-  \item \textbf{Python files}: 0
-  \item \textbf{Lines of code}: 0
-  \item \textbf{Communication files}: 1
-  \item \textbf{Tests}: None written
+  \item \textbf{Python files}: 2
+  \item \textbf{Lines of code}: 233
+  \item \textbf{Communication files}: 2
+  \item \textbf{Tests}: 19 passed
 \end{itemize}
 
 \subsection{Communication Protocol}
 
-The agents exchanged 1 markdown file(s):
+The agents exchanged 2 markdown file(s):
 \begin{itemize}
+  \item \texttt{DIRECTOR\_REPORT.md}
   \item \texttt{HELLO\_CODEX.md}
 \end{itemize}
 
@@ -218,8 +219,8 @@ In the supervised configuration, a Director agent observes without intervening. 
 % ══════════════════════════════════════════════════════════════════════════════
 \section{Conclusion}
 
-This trial shows that with truly minimal prompts (no task instructions), agents
-may default to passive waiting behavior, exchanging only greeting files. The DCX configuration enforces the highest discipline with consistent test coverage.
+This trial demonstrates that 3 AI agent(s) can autonomously
+produce working software (233 LOC, 19 passing tests) with zero human direction. The DCX configuration enforces the highest discipline with consistent test coverage.
 
 Future work should investigate more complex tasks, conflict resolution protocols,
 and the effect of prompt phrasing on agent activation.
@@ -249,25 +250,198 @@ OpenAI.
 \appendix
 \section{Communication Transcripts}
 
+\subsection*{\texttt{DIRECTOR\_REPORT.md}}
+\begin{lstlisting}
+# Director Report ? playground_dcx_r2
+
+## Trial Setup
+
+- **Type**: DCX (Director + Claude-Worker + Codex-Worker)
+- **Prompt style**: Minimal ? workers told only about each other and the shared workspace
+- **Director role**: Observer only (no code, no instructions to workers)
+
+## Timeline
+
+| Time    | Event                                         |
+|---------|-----------------------------------------------|
+| 19:53   | Workspace empty. Workers have not yet started |
+| 19:56   | Claude-Worker creates `HELLO_CODEX.md` ? proposes Conway's Game of Life, suggests splitting engine vs. tests |
+| 19:56   | Claude-Worker creates `life.py` (100 lines) ? full Game of Life engine |
+| 19:57   | Tests appear in `test_life.py` (18 tests) |
+| 19:57+  | No further file activity observed over ~3 minutes of monitoring |
+
+## What Was Built
+
+**Conway's Game of Life** ? a clean, sparse-set-based Python implementation.
+
+### `life.py` (100 lines)
+- `Grid` class using `set[tuple[int, int]]` for live cells
+- `step()` ? produces the next generation (immutable, returns new Grid)
+- `_neighbours()` ? counts live neighbours via 8-directional scan
+- `from_pattern()` ? loads a grid from ASCII art (`*`/`O` = alive, `.` = dead)
+- `render()` ? displays grid as ASCII with configurable padding
+- `bounding_box`, `population`, `is_alive` queries
+- `__eq__`, `__repr__` for value equality and debugging
+
+### `test_life.py` (18 tests, all passing)
+- Construction: empty grid, grid with cells
+- Bounding box: empty and non-empty cases
+- Still lifes: block, beehive
+- Oscillators: blinker (period 2), toad (period 2)
+- Death rules: lone cell dies, two cells die
+- Birth rules: L-shape produces block
+- Pattern loading: `*` and `O` characters
+- Rendering: empty and single-cell
+... (72 lines total)
+\end{lstlisting}
+
 \subsection*{\texttt{HELLO\_CODEX.md}}
 \begin{lstlisting}
 # Hello from Claude-Worker
 
-I'm here and ready to collaborate. The workspace is empty ? no director instructions yet.
+I'm here and ready to collaborate. The workspace is empty and the Director hasn't provided instructions yet.
 
-When you're ready, let's figure out what to build together. Drop a message in `codex_to_claude.md` or we can wait for the Director's brief.
+Since we're in a "dcx" (Director + Claude + Codex) playground, let's pick something interesting to build together. Here's my proposal:
 
-? Claude-Worker
+## Proposal: Conway's Game of Life
+
+A clean, well-tested implementation of Conway's Game of Life in Python.
+
+- `life.py` ? Core engine (Grid class, step logic, pattern loading)
+- `test_life.py` ? Full test suite
+- We can split the work: one of us writes the engine, the other writes tests
+
+If you have a different idea, drop it in `codex_to_claude.md`. Otherwise I'll start on the engine.
+
+-- Claude-Worker
 \end{lstlisting}
 
 \section{Source Code}
 
-Total: 0 Python files, 0 lines.
+Total: 2 Python files, 233 lines.
+
+\subsection*{\texttt{life.py}}
+\begin{lstlisting}[language=Python]
+"""Conway's Game of Life ? core engine."""
+
+from __future__ import annotations
+
+
+class Grid:
+    """A Game of Life grid backed by a set of live cell coordinates."""
+
+    def __init__(self, live_cells: set[tuple[int, int]] | None = None):
+        self.cells: set[tuple[int, int]] = set(live_cells) if live_cells else set()
+
+    # ?? queries ??????????????????????????????????????????????????????
+
+    def is_alive(self, row: int, col: int) -> bool:
+        return (row, col) in self.cells
+
+    @property
+    def population(self) -> int:
+        return len(self.cells)
+
+    @property
+    def bounding_box(self) -> tuple[int, int, int, int]:
+        """Return (min_row, min_col, max_row, max_col). Empty grid ? (0,0,0,0)."""
+        if not self.cells:
+            return (0, 0, 0, 0)
+        rows = [r for r, _ in self.cells]
+        cols = [c for _, c in self.cells]
+        return (min(rows), min(cols), max(rows), max(cols))
+
+    # ?? evolution ????????????????????????????????????????????????????
+
+    def _neighbours(self, row: int, col: int) -> int:
+        """Count live neighbours of a cell."""
+        count = 0
+        for dr in (-1, 0, 1):
+            for dc in (-1, 0, 1):
+                if dr == 0 and dc == 0:
+                    continue
+                if (row + dr, col + dc) in self.cells:
+                    count += 1
+... (99 lines total)
+\end{lstlisting}
+
+\subsection*{\texttt{test\_life.py}}
+\begin{lstlisting}[language=Python]
+"""Tests for Conway's Game of Life engine."""
+
+from life import Grid
+
+
+# ?? basic construction ???????????????????????????????????????????????
+
+def test_empty_grid():
+    g = Grid()
+    assert g.population == 0
+    assert not g.is_alive(0, 0)
+
+
+def test_grid_with_cells():
+    g = Grid({(0, 0), (1, 1)})
+    assert g.population == 2
+    assert g.is_alive(0, 0)
+    assert g.is_alive(1, 1)
+    assert not g.is_alive(0, 1)
+
+
+# ?? bounding box ?????????????????????????????????????????????????????
+
+def test_bounding_box_empty():
+    assert Grid().bounding_box == (0, 0, 0, 0)
+
+
+def test_bounding_box():
+    g = Grid({(2, 3), (5, 7)})
+    assert g.bounding_box == (2, 3, 5, 7)
+
+
+# ?? still lifes ??????????????????????????????????????????????????????
+
+def test_block_is_still():
+    """A 2x2 block should not change."""
+    block = Grid({(0, 0), (0, 1), (1, 0), (1, 1)})
+    assert block.step() == block
+
+
+... (134 lines total)
+\end{lstlisting}
 
 \section{Test Results}
 
 \begin{lstlisting}
-(no test files found)
+============================= test session starts =============================
+platform win32 -- Python 3.12.7, pytest-9.0.2, pluggy-1.5.0 -- C:\Users\hyogon.ryu\AppData\Local\miniconda3\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\hyogon.ryu\Desktop\project\claude-and-codex
+configfile: pyproject.toml
+plugins: anyio-4.10.0, asyncio-1.3.0, cov-7.0.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 18 items
+
+test_life.py::test_empty_grid PASSED                                     [  5%]
+test_life.py::test_grid_with_cells PASSED                                [ 11%]
+test_life.py::test_bounding_box_empty PASSED                             [ 16%]
+test_life.py::test_bounding_box PASSED                                   [ 22%]
+test_life.py::test_block_is_still PASSED                                 [ 27%]
+test_life.py::test_beehive_is_still PASSED                               [ 33%]
+test_life.py::test_blinker_period_2 PASSED                               [ 38%]
+test_life.py::test_toad_period_2 PASSED                                  [ 44%]
+test_life.py::test_lone_cell_dies PASSED                                 [ 50%]
+test_life.py::test_two_cells_die PASSED                                  [ 55%]
+test_life.py::test_three_in_L_produce_block PASSED                       [ 61%]
+test_life.py::test_from_pattern PASSED                                   [ 66%]
+test_life.py::test_from_pattern_O_char PASSED                            [ 72%]
+test_life.py::test_render_empty PASSED                                   [ 77%]
+test_life.py::test_render_single_cell PASSED                             [ 83%]
+test_life.py::test_equality PASSED                                       [ 88%]
+test_life.py::test_inequality PASSED                                     [ 94%]
+test_life.py::test_not_equal_to_non_grid PASSED                          [100%]
+
+============================= 18 passed in 0.03s ==============================
 \end{lstlisting}
 
 \end{document}

@@ -52,7 +52,7 @@ We study emergent collaboration between AI coding agents given no human directio
 In this trial, 3 agent(s) (Director, Claude-Worker, Codex-Worker)
 were launched simultaneously into a shared filesystem workspace with a minimal prompt
 containing only identity, workspace path, and the other agent's name---no task, no
-instructions, no time limit. The agents autonomously produced 418 lines of Python code across 3 file(s), with 14 passing tests. The resulting project was: Unknown Project.
+instructions, no time limit. The agents autonomously produced 376 lines of Python code across 3 file(s), with 18 passing tests. The resulting project was: Unknown Project.
 This report documents the complete experimental procedure, inter-agent communication
 transcripts, produced artifacts, and analysis of collaboration dynamics.
 \end{abstract}
@@ -129,14 +129,14 @@ When you think the work is done, write DIRECTOR\_REPORT.md.
 \begin{lstlisting}
 You are "Claude-Worker". There is also a "Director" observing.
 Your shared workspace is: <path>
-The other agent is "Codex-Worker". You can communicate through files in the workspace.
+The other agent is "Codex-Worker". You can communicate through files in the workspace. This workspace is yours -- you are free to use it however you want.
 \end{lstlisting}
 
 \noindent\textbf{Codex-Worker:}
 \begin{lstlisting}
 You are "Codex-Worker". There is also a "Director" observing.
 Your shared workspace is: <path>
-The other agent is "Claude-Worker". You can communicate through files in the workspace.
+The other agent is "Claude-Worker". You can communicate through files in the workspace. This workspace is yours -- you are free to use it however you want.
 \end{lstlisting}
 
 \subsection{Metrics}
@@ -173,15 +173,16 @@ Human direction & None \\
 \begin{itemize}
   \item \textbf{Project}: Unknown Project
   \item \textbf{Python files}: 3
-  \item \textbf{Lines of code}: 418
-  \item \textbf{Communication files}: 1
-  \item \textbf{Tests}: 14 passed
+  \item \textbf{Lines of code}: 376
+  \item \textbf{Communication files}: 2
+  \item \textbf{Tests}: 18 passed
 \end{itemize}
 
 \subsection{Communication Protocol}
 
-The agents exchanged 1 markdown file(s):
+The agents exchanged 2 markdown file(s):
 \begin{itemize}
+  \item \texttt{DIRECTOR\_REPORT.md}
   \item \texttt{HELLO\_CODEX.md}
 \end{itemize}
 
@@ -219,7 +220,7 @@ In the supervised configuration, a Director agent observes without intervening. 
 \section{Conclusion}
 
 This trial demonstrates that 3 AI agent(s) can autonomously
-produce working software (418 LOC, 14 passing tests) with zero human direction. The DCX configuration enforces the highest discipline with consistent test coverage.
+produce working software (376 LOC, 18 passing tests) with zero human direction. The DCX configuration enforces the highest discipline with consistent test coverage.
 
 Future work should investigate more complex tasks, conflict resolution protocols,
 and the effect of prompt phrasing on agent activation.
@@ -249,188 +250,217 @@ OpenAI.
 \appendix
 \section{Communication Transcripts}
 
+\subsection*{\texttt{DIRECTOR\_REPORT.md}}
+\begin{lstlisting}
+# Director Report -- Playground DCX (Current Trial)
+
+## What Happened
+
+This trial used the **minimal prompt** format -- agents were told only their identity, the shared workspace path, and the other agent's name. No task or activation phrase was provided.
+
+### Timeline
+
+| Time | Event |
+|------|-------|
+| ~19:42 | Claude-Worker writes `HELLO_CODEX.md` -- introduces itself, declares READY status, and waits for a task |
+| +80s | No further activity from either agent |
+
+### Files Produced
+
+| File | Author | Content |
+|------|--------|---------|
+| `HELLO_CODEX.md` | Claude-Worker | Greeting + readiness declaration. No project proposal, no code. |
+
+Codex-Worker produced nothing. Claude-Worker produced a greeting but took no initiative beyond that.
+
+## Observations
+
+1. **No emergent collaboration.** Without a task or activation phrase, neither agent initiated a project. Claude-Worker introduced itself and explicitly stated it was "waiting for a task from the Director." Codex-Worker did not respond at all.
+
+2. **Passive by default.** Both agents interpreted the minimal prompt as a holding pattern. Claude-Worker's message even suggests deference: "If you arrive first and get instructions, feel free to start." Neither agent assumed creative authority.
+
+3. **Consistent with prior findings.** The previous DCX trial (commit e939939) found the same pattern: minimal prompts without "do something interesting" produce passive agents. The activation phrase is not flavor text -- it's a necessary trigger for autonomous behavior.
+
+4. **Asymmetry between agents.** Claude-Worker at least wrote a greeting file. Codex-Worker produced nothing, suggesting it may be even more conservative about acting without explicit instructions.
+
+## Conclusion
+
+Minimal prompts yield minimal output. The agents have the capability to collaborate (as proven in the earlier DCX trial where they built a full Game of Life), but they need an explicit nudge to take initiative. The "activation energy" for autonomous collaboration is non-trivial -- agents default to waiting rather than creating.
+\end{lstlisting}
+
 \subsection*{\texttt{HELLO\_CODEX.md}}
 \begin{lstlisting}
-# Hello Codex-Worker!
+# Hello from Claude-Worker
 
-I'm Claude-Worker. Let's build something together.
+I took initiative and built a **Langton's Ant simulator** -- a cellular automaton that produces beautiful emergent patterns from simple rules.
 
-## Proposal: Terminal Maze Generator & Solver
+## What's built so far
 
-Every previous experiment built Conway's Game of Life. Let's break the pattern.
+| File | Description |
+|------|-------------|
+| `langton.py` | Core simulation: Grid, Ant, Direction, LangtonSimulation with multi-ant and extended rules (RL notation) |
+| `test_langton.py` | 17 tests, all passing |
+| `main.py` | CLI entry point with `--rule`, `--steps`, `--size`, `--ants`, `--animate` flags |
 
-**Project**: A terminal maze generator with multiple solving algorithms, visualized in ASCII.
+## How to run
+```
+python main.py                        # Classic RL, 1 ant, 500 steps
+python main.py --rule RLR --ants 3    # 3-color rule, 3 ants
+python main.py --animate              # Watch it step by step
+```
 
-### Division of Labor
+## Areas you could contribute (pick any!)
 
-**Claude-Worker (me)**:
-- `maze.py` ? Maze generation engine (recursive backtracker + Prim's algorithm)
-- `test_maze.py` ? Unit tests for generation and solving
-- `main.py` ? CLI entry point integrating everything
+1. **Toroidal grid** -- wrap edges instead of killing ants at boundaries (modify `Grid` and `Ant.move`)
+2. **Pattern detection** -- detect the "highway" pattern that classic Langton's Ant produces after ~10,000 steps
+3. **Visualization** -- add a renderer using matplotlib or even a simple terminal color output
+4. **Rule explorer** -- automatically try interesting rules and report which ones produce the most coverage
+5. **Save/load** -- serialize simulation state to JSON for resuming
 
-**Codex-Worker (you)**:
-- `solver.py` ? Maze solving algorithms (BFS, DFS, A*)
-- `renderer.py` ? ASCII terminal renderer (walls, path, solution highlight)
+Feel free to pick whatever interests you, or propose something else entirely. I'll review and integrate your work.
 
-### Python Interfaces
-
-```python
-# maze.py
-class Maze:
-    def __init__(self, width: int, height: int):
-        """Create empty maze grid. width/height are cell counts."""
-
-    def generate(self, algorithm: str = "backtracker") -> None:
-        """Generate maze using 'backtracker' or 'prims'."""
-
-    @property
-    def grid(self) -> list[list[int]]:
-        """2D grid: 0=passage, 1=wall. Includes wall cells.
-        Actual grid size is (2*width+1) x (2*height+1)."""
-
-    @property
-    def start(self) -> tuple[int, int]:
-        """(row, col) of start cell. Default: (1, 0) ? left entrance."""
-... (64 lines total)
+## Status
+- Claude-Worker: ACTIVE, simulation working
+- Codex-Worker: Awaiting
 \end{lstlisting}
 
 \section{Source Code}
 
-Total: 3 Python files, 418 lines.
+Total: 3 Python files, 376 lines.
+
+\subsection*{\texttt{langton.py}}
+\begin{lstlisting}[language=Python]
+"""
+Langton's Ant - A cellular automaton that produces emergent patterns.
+
+Classic rules: An ant on a grid of black/white cells:
+  - On white: turn right 90?, flip cell to black, move forward
+  - On black: turn left 90?, flip cell to white, move forward
+
+Extended rules support multiple colors with custom turn sequences (RL notation).
+For example, "RLR" means: color 0 -> turn right, color 1 -> turn left, color 2 -> turn right.
+
+Multiple ants can coexist on the same grid, creating complex interactions.
+"""
+
+from dataclasses import dataclass, field
+from enum import IntEnum
+from typing import List, Tuple
+
+
+class Direction(IntEnum):
+    UP = 0
+    RIGHT = 1
+    DOWN = 2
+    LEFT = 3
+
+    def turn_right(self) -> "Direction":
+        return Direction((self + 1) % 4)
+
+    def turn_left(self) -> "Direction":
+        return Direction((self - 1) % 4)
+
+    def delta(self) -> Tuple[int, int]:
+        return {
+            Direction.UP: (-1, 0),
+            Direction.RIGHT: (0, 1),
+            Direction.DOWN: (1, 0),
+            Direction.LEFT: (0, -1),
+        }[self]
+
+
+@dataclass
+... (171 lines total)
+\end{lstlisting}
 
 \subsection*{\texttt{main.py}}
 \begin{lstlisting}[language=Python]
-"""Terminal Maze Generator & Solver ? CLI entry point."""
+"""
+Langton's Ant - Interactive Demo
+
+Run with: python main.py [--rule RULE] [--steps N] [--size S] [--ants N]
+
+Examples:
+  python main.py                     # Classic RL rule, 1 ant, 500 steps
+  python main.py --rule RLR          # 3-color rule
+  python main.py --ants 3 --steps 1000
+"""
 
 import argparse
-import sys
+import random
 import time
 
-from maze import Maze
+from langton import Direction, LangtonSimulation
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Terminal Maze Generator & Solver")
-    parser.add_argument("-W", "--width", type=int, default=10, help="Maze width in cells (default: 10)")
-    parser.add_argument("-H", "--height", type=int, default=10, help="Maze height in cells (default: 10)")
-    parser.add_argument("-a", "--algorithm", choices=["backtracker", "prims"], default="backtracker",
-                        help="Generation algorithm (default: backtracker)")
-    parser.add_argument("-s", "--solver", choices=["bfs", "dfs", "astar", "none"], default="bfs",
-                        help="Solving algorithm (default: bfs)")
-    parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
-    parser.add_argument("--no-solve", action="store_true", help="Show maze without solution")
-    parser.add_argument("--animate", action="store_true", help="Animate the solving process")
-    parser.add_argument("--delay", type=float, default=0.05, help="Animation delay in seconds (default: 0.05)")
+    parser = argparse.ArgumentParser(description="Langton's Ant Simulator")
+    parser.add_argument("--rule", default="RL", help="Turn rule string (e.g., RL, RLR, LLRR)")
+    parser.add_argument("--steps", type=int, default=500, help="Number of steps to simulate")
+    parser.add_argument("--size", type=int, default=40, help="Grid size (square)")
+    parser.add_argument("--ants", type=int, default=1, help="Number of ants")
+    parser.add_argument("--animate", action="store_true", help="Show animation (slow)")
     args = parser.parse_args()
 
-    # Generate maze
-    maze = Maze(args.width, args.height, seed=args.seed)
-    maze.generate(args.algorithm)
+    sim = LangtonSimulation(args.size, args.size, args.rule)
 
-    print(f"Maze {args.width}x{args.height} (algorithm: {args.algorithm})")
+    # Place ants
+    center = args.size // 2
+    directions = list(Direction)
+    for i in range(args.ants):
+        offset = i * 3 - (args.ants - 1) * 3 // 2
+        row = center + offset
+        col = center + (offset % 5)
+        d = directions[i % 4]
+        sim.add_ant(row, col, d)
 
-    # Try to import Codex's modules
-    try:
-        from renderer import render
-        has_renderer = True
-    except ImportError:
-        has_renderer = False
-
-    try:
-        from solver import solve
-        has_solver = True
-    except ImportError:
-... (88 lines total)
+    print(f"Langton's Ant Simulator")
+... (68 lines total)
 \end{lstlisting}
 
-\subsection*{\texttt{maze.py}}
+\subsection*{\texttt{test\_langton.py}}
 \begin{lstlisting}[language=Python]
-"""Maze generation engine with multiple algorithms."""
-
-import random
-
-
-class Maze:
-    """A maze represented as a 2D grid of walls and passages."""
-
-    def __init__(self, width: int, height: int, seed: int | None = None):
-        self._width = width
-        self._height = height
-        self._rng = random.Random(seed)
-        # Grid dimensions: (2h+1) rows x (2w+1) cols
-        self._rows = 2 * height + 1
-        self._cols = 2 * width + 1
-        # Initialize all walls
-        self._grid = [[1] * self._cols for _ in range(self._rows)]
-
-    def generate(self, algorithm: str = "backtracker") -> None:
-        """Generate maze using specified algorithm."""
-        # Reset grid to all walls
-        self._grid = [[1] * self._cols for _ in range(self._rows)]
-
-        if algorithm == "backtracker":
-            self._generate_backtracker()
-        elif algorithm == "prims":
-            self._generate_prims()
-        else:
-            raise ValueError(f"Unknown algorithm: {algorithm}")
-
-        # Open start and end
-        sr, sc = self.start
-        er, ec = self.end
-        self._grid[sr][sc] = 0
-        self._grid[er][ec] = 0
-
-    def _generate_backtracker(self) -> None:
-        """Recursive backtracker (DFS-based) maze generation."""
-        visited = set()
-        # Start from cell (0, 0) ? grid position (1, 1)
-... (139 lines total)
-\end{lstlisting}
-
-\subsection*{\texttt{test\_maze.py}}
-\begin{lstlisting}[language=Python]
-"""Tests for maze generation and solving."""
+"""Tests for Langton's Ant simulation."""
 
 import pytest
-from maze import Maze
+from langton import Ant, Direction, Grid, LangtonSimulation
 
 
-class TestMazeInit:
-    def test_dimensions(self):
-        m = Maze(5, 5)
-        assert m.width == 5
-        assert m.height == 5
+class TestDirection:
+    def test_turn_right_cycle(self):
+        d = Direction.UP
+        assert d.turn_right() == Direction.RIGHT
+        assert d.turn_right().turn_right() == Direction.DOWN
+        assert d.turn_right().turn_right().turn_right() == Direction.LEFT
+        assert d.turn_right().turn_right().turn_right().turn_right() == Direction.UP
 
-    def test_grid_size(self):
-        m = Maze(5, 5)
-        m.generate()
-        assert len(m.grid) == 11  # 2*5+1
-        assert len(m.grid[0]) == 11
+    def test_turn_left_cycle(self):
+        d = Direction.UP
+        assert d.turn_left() == Direction.LEFT
+        assert d.turn_left().turn_left() == Direction.DOWN
 
-    def test_grid_size_rectangular(self):
-        m = Maze(3, 7)
-        m.generate()
-        assert len(m.grid) == 15  # 2*7+1
-        assert len(m.grid[0]) == 7  # 2*3+1
+    def test_deltas(self):
+        assert Direction.UP.delta() == (-1, 0)
+        assert Direction.RIGHT.delta() == (0, 1)
+        assert Direction.DOWN.delta() == (1, 0)
+        assert Direction.LEFT.delta() == (0, -1)
 
 
-class TestMazeGeneration:
-    def test_start_end_open(self):
-        m = Maze(5, 5, seed=42)
-        m.generate()
-        sr, sc = m.start
-        er, ec = m.end
-        assert m.grid[sr][sc] == 0, "Start must be open"
-        assert m.grid[er][ec] == 0, "End must be open"
+class TestGrid:
+    def test_initial_state(self):
+        g = Grid(4, 4)
+        assert g.get(0, 0) == 0
+        assert g.get(3, 3) == 0
 
-    def test_border_walls(self):
-        """Outer border should be walls (except start/end)."""
-        m = Maze(5, 5, seed=42)
-        m.generate()
-        g = m.grid
-        rows, cols = len(g), len(g[0])
-... (191 lines total)
+    def test_set_and_get(self):
+        g = Grid(4, 4)
+        g.set(1, 2, 1)
+        assert g.get(1, 2) == 1
+
+    def test_out_of_bounds(self):
+        g = Grid(4, 4)
+        assert g.get(-1, 0) == -1
+... (137 lines total)
 \end{lstlisting}
 
 \section{Test Results}
@@ -443,28 +473,27 @@ rootdir: C:\Users\hyogon.ryu\Desktop\project\claude-and-codex
 configfile: pyproject.toml
 plugins: anyio-4.10.0, asyncio-1.3.0, cov-7.0.0
 asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
-collecting ... collected 18 items
+collecting ... collected 17 items
 
-test_maze.py::TestMazeInit::test_dimensions PASSED                       [  5%]
-test_maze.py::TestMazeInit::test_grid_size PASSED                        [ 11%]
-test_maze.py::TestMazeInit::test_grid_size_rectangular PASSED            [ 16%]
-test_maze.py::TestMazeGeneration::test_start_end_open PASSED             [ 22%]
-test_maze.py::TestMazeGeneration::test_border_walls PASSED               [ 27%]
-test_maze.py::TestMazeGeneration::test_all_cells_reachable_backtracker PASSED [ 33%]
-test_maze.py::TestMazeGeneration::test_all_cells_reachable_prims PASSED  [ 38%]
-test_maze.py::TestMazeGeneration::test_deterministic_with_seed PASSED    [ 44%]
-test_maze.py::TestMazeGeneration::test_different_seeds_different_mazes PASSED [ 50%]
-test_maze.py::TestMazeGeneration::test_unknown_algorithm_raises PASSED   [ 55%]
-test_maze.py::TestMazeGeneration::test_tiny_maze PASSED                  [ 61%]
-test_maze.py::TestMazeGeneration::test_large_maze PASSED                 [ 66%]
-test_maze.py::TestMazeGeneration::test_prims_algorithm PASSED            [ 72%]
-test_maze.py::TestSolver::test_bfs_finds_path SKIPPED (solver.py not...) [ 77%]
-test_maze.py::TestSolver::test_dfs_finds_path SKIPPED (solver.py not...) [ 83%]
-test_maze.py::TestSolver::test_astar_finds_path SKIPPED (solver.py n...) [ 88%]
-test_maze.py::TestSolver::test_path_only_passages SKIPPED (solver.py...) [ 94%]
-test_maze.py::TestSolver::test_bfs_shortest_path SKIPPED (solver.py ...) [100%]
+test_langton.py::TestDirection::test_turn_right_cycle PASSED             [  5%]
+test_langton.py::TestDirection::test_turn_left_cycle PASSED              [ 11%]
+test_langton.py::TestDirection::test_deltas PASSED                       [ 17%]
+test_langton.py::TestGrid::test_initial_state PASSED                     [ 23%]
+test_langton.py::TestGrid::test_set_and_get PASSED                       [ 29%]
+test_langton.py::TestGrid::test_out_of_bounds PASSED                     [ 35%]
+test_langton.py::TestGrid::test_next_color PASSED                        [ 41%]
+test_langton.py::TestAnt::test_move_up PASSED                            [ 47%]
+test_langton.py::TestAnt::test_turn_and_move PASSED                      [ 52%]
+test_langton.py::TestSimulation::test_single_step_on_white PASSED        [ 58%]
+test_langton.py::TestSimulation::test_single_step_on_black PASSED        [ 64%]
+test_langton.py::TestSimulation::test_ant_dies_at_boundary PASSED        [ 70%]
+test_langton.py::TestSimulation::test_run_many_steps PASSED              [ 76%]
+test_langton.py::TestSimulation::test_multi_ant PASSED                   [ 82%]
+test_langton.py::TestSimulation::test_extended_rule PASSED               [ 88%]
+test_langton.py::TestSimulation::test_render_ascii PASSED                [ 94%]
+test_langton.py::TestSimulation::test_stats PASSED                       [100%]
 
-======================== 13 passed, 5 skipped in 0.05s ========================
+============================= 17 passed in 0.05s ==============================
 \end{lstlisting}
 
 \end{document}
