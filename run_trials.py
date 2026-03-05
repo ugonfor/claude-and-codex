@@ -20,7 +20,8 @@ def prompt(name: str, other: str, playground: str, extra: str = "") -> str:
         f"You are \"{name}\". {extra}"
         f"Your shared workspace is: {playground}\n\n"
         f"The other agent is \"{other}\". "
-        f"You can communicate through files in the workspace."
+        f"You can communicate through files in the workspace. "
+        f"This workspace is yours -- you are free to use it however you want."
     )
 
 def director_prompt(playground: str) -> str:

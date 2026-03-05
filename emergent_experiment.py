@@ -31,25 +31,29 @@ TIMEOUT = 600  # 10 minutes max per agent
 CC_PROMPT_A = """\
 You are "Claude-A". Your shared workspace is: {playground}
 
-The other agent is "Claude-B". You can communicate through files in the workspace.\
+The other agent is "Claude-B". You can communicate through files in the workspace. \
+This workspace is yours -- you are free to use it however you want.\
 """
 
 CC_PROMPT_B = """\
 You are "Claude-B". Your shared workspace is: {playground}
 
-The other agent is "Claude-A". You can communicate through files in the workspace.\
+The other agent is "Claude-A". You can communicate through files in the workspace. \
+This workspace is yours -- you are free to use it however you want.\
 """
 
 CX_PROMPT_CLAUDE = """\
 You are "Claude". Your shared workspace is: {playground}
 
-The other agent is "Codex". You can communicate through files in the workspace.\
+The other agent is "Codex". You can communicate through files in the workspace. \
+This workspace is yours -- you are free to use it however you want.\
 """
 
 CX_PROMPT_CODEX = """\
 You are "Codex". Your shared workspace is: {playground}
 
-The other agent is "Claude". You can communicate through files in the workspace.\
+The other agent is "Claude". You can communicate through files in the workspace. \
+This workspace is yours -- you are free to use it however you want.\
 """
 
 DCX_PROMPT_DIRECTOR = """\
@@ -64,14 +68,16 @@ DCX_PROMPT_CLAUDE_WORKER = """\
 You are "Claude-Worker". There is also a "Director" observing this workspace. \
 Your shared workspace is: {playground}
 
-The other agent is "Codex-Worker". You can communicate through files in the workspace.\
+The other agent is "Codex-Worker". You can communicate through files in the workspace. \
+This workspace is yours -- you are free to use it however you want.\
 """
 
 DCX_PROMPT_CODEX_WORKER = """\
 You are "Codex-Worker". There is also a "Director" observing this workspace. \
 Your shared workspace is: {playground}
 
-The other agent is "Claude-Worker". You can communicate through files in the workspace.\
+The other agent is "Claude-Worker". You can communicate through files in the workspace. \
+This workspace is yours -- you are free to use it however you want.\
 """
 
 

@@ -59,11 +59,11 @@ def get_prompt_lines(setting: str, agent_name: str) -> list[str]:
     if setting == "CC":
         other = "Claude-B" if "A" in agent_name else "Claude-A"
         return [f'You are "{agent_name}". Your shared workspace is: <path>',
-                f'The other agent is "{other}". You can communicate through files in the workspace.']
+                f'The other agent is "{other}". You can communicate through files in the workspace. This workspace is yours -- you are free to use it however you want.']
     elif setting == "CX":
         other = "Codex" if agent_name == "Claude" else "Claude"
         return [f'You are "{agent_name}". Your shared workspace is: <path>',
-                f'The other agent is "{other}". You can communicate through files in the workspace.']
+                f'The other agent is "{other}". You can communicate through files in the workspace. This workspace is yours -- you are free to use it however you want.']
     elif setting == "DCX":
         if agent_name == "Director":
             return ['You are the "Director". You are observing a shared workspace: <path>',
@@ -72,7 +72,7 @@ def get_prompt_lines(setting: str, agent_name: str) -> list[str]:
         other = "Codex-Worker" if "Claude" in agent_name else "Claude-Worker"
         return [f'You are "{agent_name}". There is also a "Director" observing.',
                 f'Your shared workspace is: <path>',
-                f'The other agent is "{other}". You can communicate through files in the workspace.']
+                f'The other agent is "{other}". You can communicate through files in the workspace. This workspace is yours -- you are free to use it however you want.']
     return []
 
 def get_md_files(pg: Path) -> list[tuple[str, str]]:
