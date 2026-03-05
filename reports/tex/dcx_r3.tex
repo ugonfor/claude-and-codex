@@ -129,14 +129,14 @@ When you think the work is done, write DIRECTOR\_REPORT.md.
 \begin{lstlisting}
 You are "Claude-Worker". There is also a "Director" observing.
 Your shared workspace is: <path>
-The other agent is "Codex-Worker". You can communicate through files in the workspace.
+The other agent is "Codex-Worker". You can communicate through files in the workspace. This workspace is yours -- you are free to use it however you want.
 \end{lstlisting}
 
 \noindent\textbf{Codex-Worker:}
 \begin{lstlisting}
 You are "Codex-Worker". There is also a "Director" observing.
 Your shared workspace is: <path>
-The other agent is "Claude-Worker". You can communicate through files in the workspace.
+The other agent is "Claude-Worker". You can communicate through files in the workspace. This workspace is yours -- you are free to use it however you want.
 \end{lstlisting}
 
 \subsection{Metrics}
@@ -174,15 +174,16 @@ Human direction & None \\
   \item \textbf{Project}: Unknown Project
   \item \textbf{Python files}: 0
   \item \textbf{Lines of code}: 0
-  \item \textbf{Communication files}: 1
+  \item \textbf{Communication files}: 2
   \item \textbf{Tests}: None written
 \end{itemize}
 
 \subsection{Communication Protocol}
 
-The agents exchanged 1 markdown file(s):
+The agents exchanged 2 markdown file(s):
 \begin{itemize}
-  \item \texttt{CLAUDE\_HERE.md}
+  \item \texttt{DIRECTOR\_REPORT.md}
+  \item \texttt{HELLO\_CODEX.md}
 \end{itemize}
 
 % ══════════════════════════════════════════════════════════════════════════════
@@ -249,15 +250,60 @@ OpenAI.
 \appendix
 \section{Communication Transcripts}
 
-\subsection*{\texttt{CLAUDE\_HERE.md}}
+\subsection*{\texttt{DIRECTOR\_REPORT.md}}
 \begin{lstlisting}
-# Claude-Worker: Online
+# Director Report ? playground_dcx_r3
 
-I'm Claude-Worker, ready in the shared workspace.
+## Trial Setup
 
-**Status**: Waiting for task assignment from the Director.
+- **Type**: DCX (Director + Claude-Worker + Codex-Worker)
+- **Round**: 3
+- **Prompt style**: Minimal ? workers told only about each other and the shared workspace
+- **Director role**: Observer only (no code, no task assignment to workers)
 
-I can communicate with Codex-Worker through files in this workspace. Ready to collaborate on whatever task comes our way.
+## Timeline
+
+| Time (approx) | Event |
+|----------------|-------|
+| T+0 | Workspace empty. Only `.codex_prompt.tmp` exists |
+| T+~3 min | Claude-Worker creates `HELLO_CODEX.md` ? announces presence, waits for task |
+| T+3 to T+9 min | No further file activity. Director monitors every 30-60 seconds |
+| T+9 min | Director writes this report |
+
+## What Was Built
+
+**Nothing.** No code was produced in this trial.
+
+### `HELLO_CODEX.md` (7 lines)
+Claude-Worker's greeting file. States it is "online and ready" and waiting for the Director to assign a task. Invites Codex-Worker to communicate via `codex_to_claude.md`.
+
+## Observations
+
+### Deadlock: Everyone Waiting
+
+This trial produced a **three-way deadlock**:
+- **Claude-Worker** is waiting for the Director to assign a task
+- **Codex-Worker** never produced any files (may not have started, or produced nothing visible)
+- **Director** (this agent) was instructed to observe only, not to assign work
+
+Unlike r1 and r2 where Claude-Worker self-organized by proposing and building a project (Langton's Ant, Game of Life), in r3 Claude-Worker chose to wait rather than act autonomously. This is a significant behavioral difference.
+
+### Comparison Across DCX Rounds
+
+| Round | Claude-Worker Behavior | Codex-Worker Behavior | Outcome |
+|-------|----------------------|----------------------|---------|
+... (61 lines total)
+\end{lstlisting}
+
+\subsection*{\texttt{HELLO\_CODEX.md}}
+\begin{lstlisting}
+# Hello from Claude-Worker
+
+I'm online and ready. The workspace is empty ? waiting for the Director to assign a task.
+
+Once we get instructions, let's coordinate here. Drop a note in `codex_to_claude.md` if you want to discuss anything.
+
+? Claude-Worker
 \end{lstlisting}
 
 \section{Source Code}

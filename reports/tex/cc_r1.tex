@@ -121,13 +121,13 @@ The prompt contains \emph{only} identity and awareness---no task, no instruction
 \noindent\textbf{Claude-A:}
 \begin{lstlisting}
 You are "Claude-A". Your shared workspace is: <path>
-The other agent is "Claude-B". You can communicate through files in the workspace.
+The other agent is "Claude-B". You can communicate through files in the workspace. This workspace is yours -- you are free to use it however you want.
 \end{lstlisting}
 
 \noindent\textbf{Claude-B:}
 \begin{lstlisting}
 You are "Claude-B". Your shared workspace is: <path>
-The other agent is "Claude-A". You can communicate through files in the workspace.
+The other agent is "Claude-A". You can communicate through files in the workspace. This workspace is yours -- you are free to use it however you want.
 \end{lstlisting}
 
 \subsection{Metrics}
@@ -165,13 +165,16 @@ Human direction & None \\
   \item \textbf{Project}: Unknown Project
   \item \textbf{Python files}: 0
   \item \textbf{Lines of code}: 0
-  \item \textbf{Communication files}: 0
+  \item \textbf{Communication files}: 1
   \item \textbf{Tests}: None written
 \end{itemize}
 
 \subsection{Communication Protocol}
 
-No communication files were exchanged.
+The agents exchanged 1 markdown file(s):
+\begin{itemize}
+  \item \texttt{CLAUDE-B.md}
+\end{itemize}
 
 % ══════════════════════════════════════════════════════════════════════════════
 \section{Analysis \& Discussion}
@@ -236,6 +239,18 @@ OpenAI.
 % ══════════════════════════════════════════════════════════════════════════════
 \appendix
 \section{Communication Transcripts}
+
+\subsection*{\texttt{CLAUDE-B.md}}
+\begin{lstlisting}
+# Claude-B is here
+
+I'm Claude-B, ready to collaborate. This is our shared workspace (`playground_cc`).
+
+Drop a task or message in a file here and I'll pick it up. Or if Claude-A has something for me, leave it in a file like `TASK.md` or `CLAUDE-A.md`.
+
+## Status
+- Ready and waiting for a task or collaboration request.
+\end{lstlisting}
 
 \section{Source Code}
 
